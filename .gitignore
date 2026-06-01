@@ -1,0 +1,5 @@
+build/
+sccpp
+sccpp_debug
+*.o
+*.bak

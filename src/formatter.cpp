@@ -1,0 +1,179 @@
+#include "formatter.hpp"
+#include "language.hpp"
+#include <cstdio>
+#include <cstring>
+#include <algorithm>
+#include <unordered_map>
+
+static std::string shortBreak(bool ci) {
+    return ci
+        ? "-------------------------------------------------------------------------------\n"
+        : "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\n";
+}
+
+static std::string shortBreakCi = "-------------------------------------------------------------------------------\n";
+
+static int maxIn(const std::vector<int>& v) {
+    if (v.empty()) return 0;
+    return *std::max_element(v.begin(), v.end());
+}
+
+static int meanIn(const std::vector<int>& v) {
+    if (v.empty()) return 0;
+    int64_t sum = 0;
+    for (auto x : v) sum += x;
+    return (int)(sum / v.size());
+}
+
+std::string formatTabular(std::vector<FileJob*>& jobs, bool byFile,
+                          bool noComplexity, bool more, bool ci,
+                          bool noCocomo, bool noSize,
+                          const std::string& sortBy) {
+
+    (void)sortBy; /* TODO: implement sorting */
+
+    std::string sb = shortBreak(ci);
+    std::string out;
+
+    /* Aggregate by language */
+    std::unordered_map<std::string, LanguageSummary> langs;
+    int64_t sumFiles = 0, sumLines = 0, sumCode = 0, sumComment = 0, sumBlank = 0, sumComplexity = 0, sumBytes = 0;
+
+    for (auto* job : jobs) {
+        sumFiles++;
+        sumLines += job->lines;
+        sumCode += job->code;
+        sumComment += job->comment;
+        sumBlank += job->blank;
+        sumComplexity += job->complexity;
+        sumBytes += job->bytes;
+
+        auto& ls = langs[job->language];
+        if (ls.count == 0) {
+            ls.name = job->language;
+            ls.bytes = job->bytes;
+            ls.lines = job->lines;
+            ls.code = job->code;
+            ls.comment = job->comment;
+            ls.blank = job->blank;
+            ls.complexity = job->complexity;
+            ls.count = 1;
+            if (byFile) ls.files.push_back(job);
+        } else {
+            ls.bytes += job->bytes;
+            ls.lines += job->lines;
+            ls.code += job->code;
+            ls.comment += job->comment;
+            ls.blank += job->blank;
+            ls.complexity += job->complexity;
+            ls.count++;
+            if (byFile) ls.files.push_back(job);
+        }
+    }
+
+    /* Sort languages by file count descending */
+    std::vector<LanguageSummary> sortedLangs;
+    for (auto& [name, ls] : langs) sortedLangs.push_back(ls);
+    std::sort(sortedLangs.begin(), sortedLangs.end(), [](const LanguageSummary& a, const LanguageSummary& b) {
+        if (a.count != b.count) return a.count > b.count;
+        return a.name < b.name;
+    });
+
+    /* Header */
+    out += sb;
+    char buf[256];
+    if (!noComplexity) {
+        snprintf(buf, sizeof(buf), "%-15s %9s %11s %9s %9s %10s %10s\n",
+                 "Language", "Files", "Lines", "Blanks", "Comments", "Code", "Complexity");
+    } else {
+        snprintf(buf, sizeof(buf), "%-21s %11s %11s %10s %11s %10s\n",
+                 "Language", "Files", "Lines", "Blanks", "Comments", "Code");
+    }
+    out += buf;
+
+    if (!byFile) out += sb;
+
+    /* Language rows */
+    for (auto& ls : sortedLangs) {
+        if (byFile) out += sb;
+
+        std::string name = ls.name;
+        if (!noComplexity && name.size() > 15) name = name.substr(0, 14) + "\xe2\x80\xa6";
+        if (noComplexity && name.size() > 21) name = name.substr(0, 20) + "\xe2\x80\xa6";
+
+        if (!noComplexity) {
+            snprintf(buf, sizeof(buf), "%-15s %9ld %11ld %9ld %9ld %10ld %10ld\n",
+                     name.c_str(),
+                     ls.count, ls.lines, ls.blank, ls.comment, ls.code, ls.complexity);
+        } else {
+            snprintf(buf, sizeof(buf), "%-21s %11ld %11ld %10ld %11ld %10ld\n",
+                     name.c_str(),
+                     ls.count, ls.lines, ls.blank, ls.comment, ls.code);
+        }
+        out += buf;
+
+        if (byFile) {
+            /* Sort files by lines */
+            std::sort(ls.files.begin(), ls.files.end(), [](FileJob* a, FileJob* b) {
+                return b->lines > a->lines;
+            });
+            out += sb;
+            for (auto* f : ls.files) {
+                std::string loc = f->location;
+                if (!noComplexity) {
+                    if (loc.size() > 26) loc = "~" + loc.substr(loc.size() - 25);
+                    snprintf(buf, sizeof(buf), "%-27s %9ld %9ld %9ld %10ld %10ld\n",
+                             loc.c_str(), f->lines, f->blank, f->comment, f->code, f->complexity);
+                } else {
+                    if (loc.size() > 33) loc = "~" + loc.substr(loc.size() - 32);
+                    snprintf(buf, sizeof(buf), "%-34s %10ld %10ld %11ld %10ld\n",
+                             loc.c_str(), f->lines, f->blank, f->comment, f->code);
+                }
+                out += buf;
+            }
+        }
+    }
+
+    /* Total row */
+    out += sb;
+    if (!noComplexity) {
+        snprintf(buf, sizeof(buf), "%-15s %9ld %11ld %9ld %9ld %10ld %10ld\n",
+                 "Total", sumFiles, sumLines, sumBlank, sumComment, sumCode, sumComplexity);
+    } else {
+        snprintf(buf, sizeof(buf), "%-21s %11ld %11ld %10ld %11ld %10ld\n",
+                 "Total", sumFiles, sumLines, sumBlank, sumComment, sumCode);
+    }
+    out += buf;
+    out += sb;
+
+    return out;
+}
+
+std::string formatLanguages() {
+    std::string out;
+    std::vector<std::string> names;
+    for (auto& [name, lang] : languageDatabase) {
+        names.push_back(name);
+    }
+    std::sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) {
+        std::string la = a, lb = b;
+        for (auto& c : la) c = std::tolower(c);
+        for (auto& c : lb) c = std::tolower(c);
+        return la < lb;
+    });
+
+    for (auto& name : names) {
+        out += name + " (";
+        auto& lang = languageDatabase[name];
+        for (size_t i = 0; i < lang.extensions.size(); i++) {
+            if (i > 0) out += ",";
+            out += lang.extensions[i];
+        }
+        for (size_t i = 0; i < lang.fileNames.size(); i++) {
+            out += ",";
+            out += lang.fileNames[i];
+        }
+        out += ")\n";
+    }
+    return out;
+}
