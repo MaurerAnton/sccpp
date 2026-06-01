@@ -73,6 +73,17 @@ static bool flagPercent = false;
 static bool flagMaxMean = false;
 static bool flagNoHborder = false;
 static bool flagDisableCheckBinary = false;
+static bool flagNoCocomo = false;
+static bool flagSloccountFormat = false;
+static std::string flagCocomoProjectType = "organic";
+static int64_t flagAverageWage = 56286;
+static double flagOverhead = 2.4;
+static double flagEAF = 1.0;
+static std::string flagCurrencySymbol = "$";
+static bool flagLocomo = false;
+static bool flagCostComparison = false;
+static std::string flagSizeUnit = "si";
+static bool flagNoSize = true;
 
 static void printUsage(const char* prog) {
     fprintf(stderr,
@@ -227,6 +238,9 @@ int main(int argc, char* argv[]) {
         else if (arg == "-m" || arg == "--character") flagMaxMean = true;
         else if (arg == "--no-hborder") flagNoHborder = true;
         else if (arg == "--binary") flagDisableCheckBinary = true;
+        else if (arg == "--no-cocomo") flagNoCocomo = true;
+        else if (arg == "--sloccount-format") flagSloccountFormat = true;
+        else if (arg == "--no-size") flagNoSize = false;
         else if ((arg == "-f" || arg == "--format") && i + 1 < argc) flagFormat = argv[++i];
         else if ((arg == "-s" || arg == "--sort") && i + 1 < argc) flagSortBy = argv[++i];
         else if ((arg == "-i" || arg == "--include-ext") && i + 1 < argc) flagAllowExt = argv[++i];
@@ -388,6 +402,15 @@ skip_parse:
     fOpts.maxMean = flagMaxMean;
     fOpts.sortBy = flagSortBy;
     fOpts.formatName = flagFormat;
+    fOpts.cocomo = !flagNoCocomo;
+    fOpts.sloccountFormat = flagSloccountFormat;
+    fOpts.noSize = flagNoSize;
+    fOpts.projectType = flagCocomoProjectType;
+    fOpts.currencySymbol = flagCurrencySymbol;
+    fOpts.sizeUnit = flagSizeUnit;
+    fOpts.averageWage = flagAverageWage;
+    fOpts.overhead = flagOverhead;
+    fOpts.eaf = flagEAF;
 
     /* Format output - support --format-multi */
     if (!flagFormatMulti.empty()) {

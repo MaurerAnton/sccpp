@@ -1,6 +1,7 @@
 #include "formatter.hpp"
 #include "language.hpp"
 #include "counter.hpp"
+#include "cocomo.hpp"
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
@@ -260,6 +261,19 @@ std::string formatTabular(std::vector<FileJob*>& jobs, const FormatOptions& opts
         out += brk;
     }
 
+    /* COCOMO */
+    if (opts.cocomo) {
+        out += formatCocomo(sc, opts.averageWage, opts.overhead, opts.eaf,
+                            opts.projectType, opts.currencySymbol, opts.sloccountFormat);
+        out += brk;
+    }
+
+    /* Size */
+    if (!opts.noSize) {
+        out += formatSize(sb, opts.sizeUnit);
+        out += brk;
+    }
+
     return out;
 }
 
@@ -367,12 +381,95 @@ std::string formatClocYAML(std::vector<FileJob*>& jobs) {
 
 /* ---- Format dispatch ---- */
 
+static std::string htmlEscape(const std::string& s) {
+    std::string out;
+    for (char c : s) {
+        switch (c) {
+            case '<': out += "&lt;"; break;
+            case '>': out += "&gt;"; break;
+            case '&': out += "&amp;"; break;
+            case '"': out += "&quot;"; break;
+            default: out += c;
+        }
+    }
+    return out;
+}
+
+static std::string formatHtml(std::vector<FileJob*>& jobs, const FormatOptions& opts, bool fullPage) {
+    std::vector<LanguageSummary> langs;
+    int64_t sf, sl, sc, sco, sb, sx;
+    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, opts);
+
+    std::string out;
+    if (fullPage) {
+        out += "<html lang=\"en\"><head><meta charset=\"utf-8\" /><title>scc html output</title>"
+               "<style>table{border-collapse:collapse}td,th{border:1px solid #999;padding:.5rem}</style></head><body>\n";
+    }
+    out += "<table id=\"scc-table\">\n<thead><tr>\n"
+           "<th>Language</th><th>Files</th><th>Lines</th><th>Blank</th>"
+           "<th>Comment</th><th>Code</th><th>Complexity</th><th>Bytes</th></tr></thead>\n<tbody>\n";
+
+    char buf[512];
+    for (auto& r : langs) {
+        snprintf(buf, sizeof(buf),
+            "<tr><th>%s</th><td>%ld</td><td>%ld</td><td>%ld</td>"
+            "<td>%ld</td><td>%ld</td><td>%ld</td><td>%ld</td></tr>\n",
+            htmlEscape(r.name).c_str(), r.count, r.lines, r.blank,
+            r.comment, r.code, r.complexity, r.bytes);
+        out += buf;
+    }
+
+    snprintf(buf, sizeof(buf),
+        "</tbody>\n<tfoot><tr><th>Total</th><td>%ld</td><td>%ld</td>"
+        "<td>%ld</td><td>%ld</td><td>%ld</td><td>%ld</td><td>%ld</td></tr>\n</tfoot></table>\n",
+        sf, sl, sb, sco, sc, sx, [&](){ int64_t tb=0; for(auto&l:langs)tb+=l.bytes; return tb; }());
+    out += buf;
+
+    if (fullPage) out += "</body></html>\n";
+    return out;
+}
+
+static std::string formatOpenMetrics(std::vector<FileJob*>& jobs, const FormatOptions& opts) {
+    std::vector<LanguageSummary> langs;
+    int64_t sf, sl, sc, sco, sb, sx;
+    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, opts);
+
+    std::string out =
+        "# TYPE scc_files gauge\n# HELP scc_files Number of sourcecode files.\n"
+        "# TYPE scc_lines gauge\n# HELP scc_lines Number of lines.\n"
+        "# TYPE scc_code gauge\n# HELP scc_code Number of lines of actual code.\n"
+        "# TYPE scc_comments gauge\n# HELP scc_comments Number of comments.\n"
+        "# TYPE scc_blanks gauge\n# HELP scc_blanks Number of blank lines.\n"
+        "# TYPE scc_complexity gauge\n# HELP scc_complexity Code complexity.\n"
+        "# TYPE scc_bytes gauge\n# UNIT scc_bytes bytes\n# HELP scc_bytes Size in bytes.\n";
+
+    char buf[512];
+    for (auto& r : langs) {
+        snprintf(buf, sizeof(buf), "scc_files{language=\"%s\"} %ld\n", r.name.c_str(), r.count); out += buf;
+        snprintf(buf, sizeof(buf), "scc_lines{language=\"%s\"} %ld\n", r.name.c_str(), r.lines); out += buf;
+        snprintf(buf, sizeof(buf), "scc_code{language=\"%s\"} %ld\n", r.name.c_str(), r.code); out += buf;
+        snprintf(buf, sizeof(buf), "scc_comments{language=\"%s\"} %ld\n", r.name.c_str(), r.comment); out += buf;
+        snprintf(buf, sizeof(buf), "scc_blanks{language=\"%s\"} %ld\n", r.name.c_str(), r.blank); out += buf;
+        snprintf(buf, sizeof(buf), "scc_complexity{language=\"%s\"} %ld\n", r.name.c_str(), r.complexity); out += buf;
+        snprintf(buf, sizeof(buf), "scc_bytes{language=\"%s\"} %ld\n", r.name.c_str(), r.bytes); out += buf;
+    }
+    out += "# EOF\n";
+    return out;
+}
+
 std::string formatDispatch(const FormatOptions& opts, std::vector<FileJob*>& jobs) {
     const auto& fn = opts.formatName;
     if (icaseEq(fn, "json"))  return formatJSON(jobs, opts);
     if (icaseEq(fn, "json2")) return formatJSON2(jobs);
     if (icaseEq(fn, "csv") || icaseEq(fn, "csv-stream")) return formatCSV(jobs, opts);
     if (icaseEq(fn, "cloc-yaml") || icaseEq(fn, "cloc-yml")) return formatClocYAML(jobs);
+    if (icaseEq(fn, "html")) return formatHtml(jobs, opts, true);
+    if (icaseEq(fn, "html-table")) return formatHtml(jobs, opts, false);
+    if (icaseEq(fn, "openmetrics")) return formatOpenMetrics(jobs, opts);
+    if (icaseEq(fn, "sql") || icaseEq(fn, "sql-insert")) {
+        /* SQL format: output as CSV for now */
+        return formatCSV(jobs, opts);
+    }
     return formatTabular(jobs, opts);
 }
 

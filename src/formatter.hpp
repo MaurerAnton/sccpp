@@ -15,8 +15,17 @@ struct FormatOptions {
     bool dryness = false;
     bool percent = false;
     bool maxMean = false;
+    bool cocomo = true;        /* show COCOMO by default */
+    bool sloccountFormat = false;
+    bool noSize = true;        /* hide size by default */
     std::string sortBy = "files";
     std::string formatName = "tabular";
+    std::string projectType = "organic";
+    std::string currencySymbol = "$";
+    std::string sizeUnit = "si";
+    int64_t averageWage = 56286;
+    double overhead = 2.4;
+    double eaf = 1.0;
 };
 
 /* Format file jobs into tabular output string */
