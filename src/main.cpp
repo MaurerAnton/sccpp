@@ -9,13 +9,35 @@
 #include <vector>
 #include <algorithm>
 #include <atomic>
+#include <fstream>
+#include <sstream>
+
+/* ---- Remap helpers ---- */
+
+struct RemapRule { std::string pattern; std::string language; };
+
+static std::vector<RemapRule> parseRemapRules(const std::string& value) {
+    std::vector<RemapRule> rules;
+    if (value.empty()) return rules;
+    size_t pos = 0;
+    while (pos < value.size()) {
+        size_t comma = value.find(',', pos);
+        std::string pair = (comma == std::string::npos) ? value.substr(pos) : value.substr(pos, comma - pos);
+        pos = (comma == std::string::npos) ? value.size() : comma + 1;
+        size_t colon = pair.find(':');
+        if (colon != std::string::npos) {
+            rules.push_back({pair.substr(0, colon), pair.substr(colon + 1)});
+        }
+    }
+    return rules;
+}
 
 /* ---- Flags (matching scc CLI) ---- */
 static bool flagLanguages = false;
 static bool flagByFile = false;
-static bool flagNoComplexity = false;   /* --no-complexity / -c */
-static bool flagMore = false;           /* --wide / -w */
-static bool flagCi = false;            /* --ci */
+static bool flagNoComplexity = false;
+static bool flagMore = false;
+static bool flagCi = false;
 static bool flagIncludeSymLinks = false;
 static bool flagNoLarge = false;
 static int64_t flagLargeLineCount = 40000;
@@ -27,27 +49,40 @@ static std::string flagExcludeExt;
 static std::string flagExcludeFile;
 static std::string flagOutput;
 static int flagWorkers = 0;
+static std::string flagCountAs;
+static std::string flagRemapAll;
+static std::string flagRemapUnknown;
+static std::string flagFormatMulti;
+static bool flagNoGitignore = false;
+static bool flagNoIgnore = false;
 
 static void printUsage(const char* prog) {
     fprintf(stderr,
         "sccpp - Sloc Cloc and Code (pure C++ port of scc)\n"
         "Usage: %s [flags] [files or directories...]\n\n"
         "Flags:\n"
-        "  -f, --format FMT    Output format: tabular (default)\n"
-        "  -l, --languages     Print supported languages and exit\n"
-        "  -c, --no-complexity Skip complexity calculation\n"
-        "  -w, --wide          Wider output\n"
-        "  --by-file           Show per-file output\n"
-        "  --ci                ASCII-safe output for CI\n"
-        "  --include-symlinks  Count symlinked files\n"
-        "  --no-large          Skip large files\n"
-        "  --exclude-dir DIR   Directories to exclude (repeatable)\n"
-        "  -i, --include-ext E Limit to extensions (comma-sep)\n"
-        "  -x, --exclude-ext E Exclude extensions (comma-sep)\n"
-        "  -s, --sort COL      Sort by: files, lines, blanks, code, comments, complexity\n"
-        "  -o, --output FILE   Write output to file\n"
-        "  -j, --workers N     Number of worker threads (default: CPU count)\n"
-        "  -h, --help          Show this help\n",
+        "  -f, --format FMT     Output format [tabular, wide, json, json2, csv, csv-stream, cloc-yaml]\n"
+        "  -l, --languages      Print supported languages and exit\n"
+        "  -c, --no-complexity  Skip complexity calculation\n"
+        "  -w, --wide           Wider output\n"
+        "  --by-file            Show per-file output\n"
+        "  --ci                 ASCII-safe output for CI\n"
+        "  --include-symlinks   Count symlinked files\n"
+        "  --no-large           Skip large files\n"
+        "  --exclude-dir DIR    Directories to exclude (repeatable)\n"
+        "  -i, --include-ext E  Limit to extensions (comma-sep)\n"
+        "  -x, --exclude-ext E  Exclude extensions (comma-sep)\n"
+        "  -n, --exclude-file F Exclude files by name (comma-sep)\n"
+        "  -s, --sort COL       Sort by: files, lines, blanks, code, comments, complexity\n"
+        "  -o, --output FILE    Write output to file\n"
+        "  -j, --workers N      Number of worker threads (default: CPU count)\n"
+        "  --count-as RULE      Count extension as language [e.g. jsp:htm]\n"
+        "  --remap-all RULE     Remap any file by content pattern [e.g. \"-*- C++ -*-\":\"C Header\"]\n"
+        "  --remap-unknown RULE Remap unknown files by content pattern\n"
+        "  --no-gitignore       Disable .gitignore logic\n"
+        "  --no-ignore          Disable .ignore file logic\n"
+        "  --format-multi SPEC  Multiple outputs [e.g. tabular:stdout,json:file.json]\n"
+        "  -h, --help           Show this help\n",
         prog);
 }
 
@@ -65,9 +100,70 @@ static std::vector<std::string> splitCSV(const std::string& s) {
     return result;
 }
 
+/* Read a file from disk (for @flags.txt syntax) */
+static std::string readTextFile(const std::string& path) {
+    std::ifstream f(path);
+    if (!f) return "";
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
 int main(int argc, char* argv[]) {
     std::vector<std::string> paths;
     std::vector<std::string> excludeDirs;
+
+    /* Handle @flags.txt syntax */
+    if (argc == 2 && argv[1][0] == '@') {
+        std::string content = readTextFile(argv[1] + 1);
+        if (content.empty()) { fprintf(stderr, "Cannot read flags file: %s\n", argv[1] + 1); return 1; }
+        /* Tokenize by whitespace/newline */
+        std::vector<std::string> newArgs;
+        newArgs.push_back(argv[0]);
+        std::istringstream iss(content);
+        std::string tok;
+        while (iss >> tok) newArgs.push_back(tok);
+        /* Re-parse with new args */
+        std::vector<char*> newArgv;
+        for (auto& s : newArgs) newArgv.push_back(&s[0]);
+        argc = (int)newArgv.size();
+        /* Recurse — reuse argv allocation on stack */
+        std::vector<std::string> storedArgs = newArgs;
+        std::vector<char*> ptrs;
+        ptrs.push_back(argv[0]); /* program name */
+        for (size_t i = 1; i < storedArgs.size(); i++) ptrs.push_back(&storedArgs[i][0]);
+        /* Reparse */
+        paths.clear(); excludeDirs.clear();
+        for (int i = 1; i < (int)ptrs.size(); i++) {
+            std::string arg = ptrs[i];
+            /* Re-parse all flags inline */
+            if (arg == "-h" || arg == "--help") { printUsage(argv[0]); return 0; }
+            else if (arg == "-l" || arg == "--languages") flagLanguages = true;
+            else if (arg == "-c" || arg == "--no-complexity") flagNoComplexity = true;
+            else if (arg == "-w" || arg == "--wide") flagMore = true;
+            else if (arg == "--by-file") flagByFile = true;
+            else if (arg == "--ci") flagCi = true;
+            else if (arg == "--include-symlinks") flagIncludeSymLinks = true;
+            else if (arg == "--no-large") flagNoLarge = true;
+            else if (arg == "--no-gitignore") flagNoGitignore = true;
+            else if (arg == "--no-ignore") flagNoIgnore = true;
+            else if ((arg == "-f" || arg == "--format") && i + 1 < argc) flagFormat = ptrs[++i];
+            else if ((arg == "-s" || arg == "--sort") && i + 1 < argc) flagSortBy = ptrs[++i];
+            else if ((arg == "-i" || arg == "--include-ext") && i + 1 < argc) flagAllowExt = ptrs[++i];
+            else if ((arg == "-x" || arg == "--exclude-ext") && i + 1 < argc) flagExcludeExt = ptrs[++i];
+            else if ((arg == "-n" || arg == "--exclude-file") && i + 1 < argc) flagExcludeFile = ptrs[++i];
+            else if ((arg == "-o" || arg == "--output") && i + 1 < argc) flagOutput = ptrs[++i];
+            else if ((arg == "-j" || arg == "--workers") && i + 1 < argc) flagWorkers = std::atoi(ptrs[++i]);
+            else if (arg == "--count-as" && i + 1 < argc) flagCountAs = ptrs[++i];
+            else if (arg == "--remap-all" && i + 1 < argc) flagRemapAll = ptrs[++i];
+            else if (arg == "--remap-unknown" && i + 1 < argc) flagRemapUnknown = ptrs[++i];
+            else if (arg == "--format-multi" && i + 1 < argc) flagFormatMulti = ptrs[++i];
+            else if (arg == "--exclude-dir" && i + 1 < argc) excludeDirs.push_back(ptrs[++i]);
+            else if (arg[0] != '-') paths.push_back(arg);
+            else { fprintf(stderr, "Unknown flag: %s\n", arg.c_str()); return 1; }
+        }
+        goto skip_parse;
+    }
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -79,20 +175,37 @@ int main(int argc, char* argv[]) {
         else if (arg == "--ci") flagCi = true;
         else if (arg == "--include-symlinks") flagIncludeSymLinks = true;
         else if (arg == "--no-large") flagNoLarge = true;
+        else if (arg == "--no-gitignore") flagNoGitignore = true;
+        else if (arg == "--no-ignore") flagNoIgnore = true;
         else if ((arg == "-f" || arg == "--format") && i + 1 < argc) flagFormat = argv[++i];
         else if ((arg == "-s" || arg == "--sort") && i + 1 < argc) flagSortBy = argv[++i];
         else if ((arg == "-i" || arg == "--include-ext") && i + 1 < argc) flagAllowExt = argv[++i];
         else if ((arg == "-x" || arg == "--exclude-ext") && i + 1 < argc) flagExcludeExt = argv[++i];
+        else if ((arg == "-n" || arg == "--exclude-file") && i + 1 < argc) flagExcludeFile = argv[++i];
         else if ((arg == "-o" || arg == "--output") && i + 1 < argc) flagOutput = argv[++i];
         else if ((arg == "-j" || arg == "--workers") && i + 1 < argc) flagWorkers = std::atoi(argv[++i]);
+        else if (arg == "--count-as" && i + 1 < argc) flagCountAs = argv[++i];
+        else if (arg == "--remap-all" && i + 1 < argc) flagRemapAll = argv[++i];
+        else if (arg == "--remap-unknown" && i + 1 < argc) flagRemapUnknown = argv[++i];
+        else if (arg == "--format-multi" && i + 1 < argc) flagFormatMulti = argv[++i];
         else if (arg == "--exclude-dir" && i + 1 < argc) excludeDirs.push_back(argv[++i]);
         else if (arg[0] != '-') paths.push_back(arg);
         else { fprintf(stderr, "Unknown flag: %s\n", arg.c_str()); return 1; }
     }
 
+skip_parse:
     if (excludeDirs.empty()) excludeDirs = {".git", ".hg", ".svn"};
 
     initLanguageDatabase();
+
+    /* Apply --count-as before building features */
+    if (!flagCountAs.empty()) setupCountAs(flagCountAs);
+
+    /* Parse remap rules */
+    std::vector<std::pair<std::string,std::string>> remapAllRules;
+    for (auto& r : parseRemapRules(flagRemapAll)) remapAllRules.emplace_back(r.pattern, r.language);
+    std::vector<std::pair<std::string,std::string>> remapUnknownRules;
+    for (auto& r : parseRemapRules(flagRemapUnknown)) remapUnknownRules.emplace_back(r.pattern, r.language);
 
     if (flagLanguages) {
         fprintf(stdout, "%s", formatLanguages().c_str());
@@ -107,7 +220,7 @@ int main(int argc, char* argv[]) {
 
     auto allowExts = splitCSV(flagAllowExt);
     auto excludeExts = splitCSV(flagExcludeExt);
-    std::vector<std::string> excludeFns;
+    auto excludeFns = splitCSV(flagExcludeFile);
 
     /* Walk and collect jobs */
     std::vector<FileJob*> jobs;
@@ -140,12 +253,23 @@ int main(int argc, char* argv[]) {
 
                 if (job->content.empty()) { job->lines = 0; continue; }
 
+                /* Remap-all check (runs before shebang detection) */
+                if (!remapAllRules.empty()) {
+                    hardRemapLanguage(job, remapAllRules, {});
+                }
+
                 if (job->language == SheBang) {
-                    std::string sb = detectSheBang(
-                        std::string(reinterpret_cast<const char*>(job->content.data()),
-                                    std::min(job->content.size(), (size_t)200)));
-                    if (!sb.empty()) { job->language = sb; loadLanguageFeature(sb); }
-                    else continue;
+                    /* Remap-unknown check for shebang files */
+                    if (!remapUnknownRules.empty()) {
+                        hardRemapLanguage(job, {}, remapUnknownRules);
+                    }
+                    if (job->language == SheBang) {
+                        std::string sb = detectSheBang(
+                            std::string(reinterpret_cast<const char*>(job->content.data()),
+                                        std::min(job->content.size(), (size_t)200)));
+                        if (!sb.empty()) { job->language = sb; loadLanguageFeature(sb); }
+                        else continue;
+                    }
                 }
 
                 if (job->possibleLanguages.size() > 1)
@@ -160,16 +284,34 @@ int main(int argc, char* argv[]) {
     }
     for (auto& w : workers) w.join();
 
-    /* Format output */
-    std::string output = formatDispatch(flagFormat, jobs, flagByFile, flagNoComplexity,
-                                         flagMore, flagCi, flagSortBy);
-
-    if (flagOutput.empty()) {
-        fprintf(stdout, "%s", output.c_str());
+    /* Format output - support --format-multi */
+    if (!flagFormatMulti.empty()) {
+        /* --format-multi: comma-separated format:destination pairs */
+        auto specs = splitCSV(flagFormatMulti);
+        for (auto& spec : specs) {
+            size_t colon = spec.find(':');
+            std::string fmt = (colon == std::string::npos) ? spec : spec.substr(0, colon);
+            std::string dest = (colon == std::string::npos) ? "stdout" : spec.substr(colon + 1);
+            std::string output = formatDispatch(fmt, jobs, flagByFile, flagNoComplexity,
+                                                 flagMore, flagCi, flagSortBy);
+            if (dest == "stdout") {
+                fprintf(stdout, "%s\n", output.c_str());
+            } else {
+                FILE* f = fopen(dest.c_str(), "w");
+                if (f) { fputs(output.c_str(), f); fclose(f); }
+                else fprintf(stderr, "Could not write to %s\n", dest.c_str());
+            }
+        }
     } else {
-        FILE* f = fopen(flagOutput.c_str(), "w");
-        if (f) { fputs(output.c_str(), f); fclose(f); }
-        else fprintf(stderr, "Could not write to %s\n", flagOutput.c_str());
+        std::string output = formatDispatch(flagFormat, jobs, flagByFile, flagNoComplexity,
+                                             flagMore, flagCi, flagSortBy);
+        if (flagOutput.empty()) {
+            fprintf(stdout, "%s", output.c_str());
+        } else {
+            FILE* f = fopen(flagOutput.c_str(), "w");
+            if (f) { fputs(output.c_str(), f); fclose(f); }
+            else fprintf(stderr, "Could not write to %s\n", flagOutput.c_str());
+        }
     }
 
     for (auto* j : jobs) delete j;

@@ -20,7 +20,10 @@ std::string determineLanguage(const std::string& filename,
 /* Extension cache helper */
 std::string getExtension(const std::string& name);
 
-/* Check file for remapping strings */
+/* Check file for remapping strings.
+   Each pair is (pattern, language). First checks remapAll (applied to all files),
+   then remapUnknown (applied only to unknown/shebang files).
+   Returns true if language was remapped. */
 bool hardRemapLanguage(FileJob* job,
                        const std::vector<std::pair<std::string, std::string>>& remapAll,
                        const std::vector<std::pair<std::string, std::string>>& remapUnknown);
