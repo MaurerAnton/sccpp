@@ -56,7 +56,7 @@ std::string formatCocomo(int64_t sumCode, int64_t averageWage, double overhead,
     double cost = estimateCost(effort, averageWage, overhead);
     double people = (schedMonths > 0) ? effort / schedMonths : 0.0;
 
-    char buf[512];
+    char buf[1024];
     std::string out;
 
     if (sloccount) {
