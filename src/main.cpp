@@ -375,16 +375,29 @@ skip_parse:
         return skip;
     }), jobs.end());
 
+    /* Build format options */
+    FormatOptions fOpts;
+    fOpts.byFile = flagByFile;
+    fOpts.noComplexity = flagNoComplexity;
+    fOpts.wide = flagMore;
+    fOpts.ci = flagCi;
+    fOpts.noHborder = flagNoHborder;
+    fOpts.uloc = flagUloc;
+    fOpts.dryness = flagDryness;
+    fOpts.percent = flagPercent;
+    fOpts.maxMean = flagMaxMean;
+    fOpts.sortBy = flagSortBy;
+    fOpts.formatName = flagFormat;
+
     /* Format output - support --format-multi */
     if (!flagFormatMulti.empty()) {
-        /* --format-multi: comma-separated format:destination pairs */
         auto specs = splitCSV(flagFormatMulti);
         for (auto& spec : specs) {
             size_t colon = spec.find(':');
             std::string fmt = (colon == std::string::npos) ? spec : spec.substr(0, colon);
             std::string dest = (colon == std::string::npos) ? "stdout" : spec.substr(colon + 1);
-            std::string output = formatDispatch(fmt, jobs, flagByFile, flagNoComplexity,
-                                                 flagMore, flagCi, flagSortBy);
+            fOpts.formatName = fmt;
+            std::string output = formatDispatch(fOpts, jobs);
             if (dest == "stdout") {
                 fprintf(stdout, "%s\n", output.c_str());
             } else {
@@ -394,8 +407,7 @@ skip_parse:
             }
         }
     } else {
-        std::string output = formatDispatch(flagFormat, jobs, flagByFile, flagNoComplexity,
-                                             flagMore, flagCi, flagSortBy);
+        std::string output = formatDispatch(fOpts, jobs);
         if (flagOutput.empty()) {
             fprintf(stdout, "%s", output.c_str());
         } else {

@@ -1,5 +1,6 @@
 #include "formatter.hpp"
 #include "language.hpp"
+#include "counter.hpp"
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
@@ -9,17 +10,14 @@
 
 /* ---- Helpers ---- */
 
-static std::string shortBreak(bool ci) {
+static std::string shortBreak(bool ci, bool noHborder) {
+    if (noHborder) return "";
     return ci
         ? "-------------------------------------------------------------------------------\n"
         : "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\n";
 }
 
-static std::string wideBreak(bool ci) {
-    return ci
-        ? "-------------------------------------------------------------------------------------------------------------\n"
-        : "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\n";
-}
+static std::string shortBreakCi = "-------------------------------------------------------------------------------\n";
 
 static bool icaseEq(const std::string& a, const std::string& b) {
     if (a.size() != b.size()) return false;
@@ -28,7 +26,6 @@ static bool icaseEq(const std::string& a, const std::string& b) {
     return true;
 }
 
-/* JSON string escaping */
 static std::string jsonEscape(const std::string& s) {
     std::string out;
     out.reserve(s.size() + 2);
@@ -51,7 +48,7 @@ static void aggregate(const std::vector<FileJob*>& jobs,
                       std::vector<LanguageSummary>& sortedLangs,
                       int64_t& sumFiles, int64_t& sumLines, int64_t& sumCode,
                       int64_t& sumComment, int64_t& sumBlank, int64_t& sumComplexity,
-                      bool byFile, const std::string& sortBy) {
+                      const FormatOptions& opts) {
 
     std::unordered_map<std::string, LanguageSummary> langs;
     sumFiles = sumLines = sumCode = sumComment = sumBlank = sumComplexity = 0;
@@ -60,7 +57,6 @@ static void aggregate(const std::vector<FileJob*>& jobs,
         sumFiles++; sumLines += job->lines; sumCode += job->code;
         sumComment += job->comment; sumBlank += job->blank; sumComplexity += job->complexity;
 
-        /* Compute per-file weighted complexity (matching Go's logic) */
         double wc = job->code ? (double)job->complexity / (double)job->code * 100.0 : 0.0;
         job->weightedComplexity = wc;
 
@@ -72,35 +68,39 @@ static void aggregate(const std::vector<FileJob*>& jobs,
             ls.complexity = job->complexity;
             ls.weightedComplexity = wc;
             ls.count = 1;
-            if (byFile) ls.files.push_back(job);
+            if (opts.byFile) ls.files.push_back(job);
         } else {
             ls.bytes += job->bytes; ls.lines += job->lines; ls.code += job->code;
             ls.comment += job->comment; ls.blank += job->blank;
             ls.complexity += job->complexity;
             ls.weightedComplexity += wc;
             ls.count++;
-            if (byFile) ls.files.push_back(job);
+            if (opts.byFile) ls.files.push_back(job);
         }
     }
 
-    for (auto& [name, ls] : langs) sortedLangs.push_back(ls);
+    for (auto& [name, ls] : langs) {
+        /* Add ULOC from global state */
+        auto it = ulocLanguageCount.find(ls.name);
+        if (it != ulocLanguageCount.end()) ls.uloc = (int)it->second.size();
+        sortedLangs.push_back(ls);
+    }
 
-    /* Sort (default: files desc, name asc) */
+    auto& sb = opts.sortBy;
     auto cmp = [&](const LanguageSummary& a, const LanguageSummary& b) {
-        if (icaseEq(sortBy, "name") || icaseEq(sortBy, "names")) return a.name < b.name;
-        if (icaseEq(sortBy, "line") || icaseEq(sortBy, "lines")) { if (a.lines != b.lines) return a.lines > b.lines; return a.name < b.name; }
-        if (icaseEq(sortBy, "blank") || icaseEq(sortBy, "blanks")) { if (a.blank != b.blank) return a.blank > b.blank; return a.name < b.name; }
-        if (icaseEq(sortBy, "code") || icaseEq(sortBy, "codes")) { if (a.code != b.code) return a.code > b.code; return a.name < b.name; }
-        if (icaseEq(sortBy, "comment") || icaseEq(sortBy, "comments")) { if (a.comment != b.comment) return a.comment > b.comment; return a.name < b.name; }
-        if (icaseEq(sortBy, "complexity") || icaseEq(sortBy, "comp")) { if (a.complexity != b.complexity) return a.complexity > b.complexity; return a.name < b.name; }
-        if (icaseEq(sortBy, "byte") || icaseEq(sortBy, "bytes")) { if (a.bytes != b.bytes) return a.bytes > b.bytes; return a.name < b.name; }
+        if (icaseEq(sb, "name") || icaseEq(sb, "names")) return a.name < b.name;
+        if (icaseEq(sb, "line") || icaseEq(sb, "lines")) { if (a.lines != b.lines) return a.lines > b.lines; return a.name < b.name; }
+        if (icaseEq(sb, "blank") || icaseEq(sb, "blanks")) { if (a.blank != b.blank) return a.blank > b.blank; return a.name < b.name; }
+        if (icaseEq(sb, "code") || icaseEq(sb, "codes")) { if (a.code != b.code) return a.code > b.code; return a.name < b.name; }
+        if (icaseEq(sb, "comment") || icaseEq(sb, "comments")) { if (a.comment != b.comment) return a.comment > b.comment; return a.name < b.name; }
+        if (icaseEq(sb, "complexity") || icaseEq(sb, "comp")) { if (a.complexity != b.complexity) return a.complexity > b.complexity; return a.name < b.name; }
+        if (icaseEq(sb, "byte") || icaseEq(sb, "bytes")) { if (a.bytes != b.bytes) return a.bytes > b.bytes; return a.name < b.name; }
         if (a.count != b.count) return a.count > b.count;
         return a.name < b.name;
     };
     std::sort(sortedLangs.begin(), sortedLangs.end(), cmp);
 
-    /* Sort per-file lists */
-    if (byFile) {
+    if (opts.byFile) {
         for (auto& ls : sortedLangs) {
             std::sort(ls.files.begin(), ls.files.end(), [](FileJob* a, FileJob* b) {
                 return a->lines > b->lines;
@@ -109,26 +109,34 @@ static void aggregate(const std::vector<FileJob*>& jobs,
     }
 }
 
+static int maxIn(const std::vector<int>& v) {
+    if (v.empty()) return 0;
+    return *std::max_element(v.begin(), v.end());
+}
+static int meanIn(const std::vector<int>& v) {
+    if (v.empty()) return 0;
+    int64_t sum = 0;
+    for (int x : v) sum += x;
+    return (int)(sum / (int64_t)v.size());
+}
+
 /* ---- Tabular ---- */
 
-std::string formatTabular(std::vector<FileJob*>& jobs, bool byFile,
-                          bool noComplexity, bool wide, bool ci,
-                          const std::string& sortBy) {
-
+std::string formatTabular(std::vector<FileJob*>& jobs, const FormatOptions& opts) {
     std::vector<LanguageSummary> langs;
     int64_t sf, sl, sc, sco, sb, sx;
-    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, byFile, sortBy);
+    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, opts);
 
-    std::string brk = wide ? wideBreak(ci) : shortBreak(ci);
+    std::string brk = shortBreak(opts.ci, opts.noHborder);
     std::string out;
     out += brk;
 
     char buf[512];
 
-    if (wide) {
+    if (opts.wide) {
         snprintf(buf, sizeof(buf), "%-33s %9s %9s %8s %9s %8s %10s %16s\n",
                  "Language", "Files", "Lines", "Blanks", "Comments", "Code", "Complexity", "Complexity/Lines");
-    } else if (!noComplexity) {
+    } else if (!opts.noComplexity) {
         snprintf(buf, sizeof(buf), "%-15s %9s %11s %9s %9s %10s %10s\n",
                  "Language", "Files", "Lines", "Blanks", "Comments", "Code", "Complexity");
     } else {
@@ -136,19 +144,19 @@ std::string formatTabular(std::vector<FileJob*>& jobs, bool byFile,
                  "Language", "Files", "Lines", "Blanks", "Comments", "Code");
     }
     out += buf;
-    if (!byFile) out += brk;
+    if (!opts.byFile) out += brk;
 
     for (auto& ls : langs) {
-        if (byFile) out += brk;
+        if (opts.byFile) out += brk;
 
         std::string name = ls.name;
-        int nameW = wide ? 33 : (noComplexity ? 21 : 15);
+        int nameW = opts.wide ? 33 : (opts.noComplexity ? 21 : 15);
         if ((int)name.size() > nameW) name = name.substr(0, nameW - 1) + "\xe2\x80\xa6";
 
-        if (wide) {
+        if (opts.wide) {
             snprintf(buf, sizeof(buf), "%-33s %9ld %9ld %8ld %9ld %8ld %10ld %16.2f\n",
                      name.c_str(), ls.count, ls.lines, ls.blank, ls.comment, ls.code, ls.complexity, ls.weightedComplexity);
-        } else if (!noComplexity) {
+        } else if (!opts.noComplexity) {
             snprintf(buf, sizeof(buf), "%-15s %9ld %11ld %9ld %9ld %10ld %10ld\n",
                      name.c_str(), ls.count, ls.lines, ls.blank, ls.comment, ls.code, ls.complexity);
         } else {
@@ -157,15 +165,48 @@ std::string formatTabular(std::vector<FileJob*>& jobs, bool byFile,
         }
         out += buf;
 
-        if (byFile) {
+        /* Percent row */
+        if (opts.percent) {
+            if (!opts.noComplexity)
+                snprintf(buf, sizeof(buf), "Percentage %13.1f%% %10.1f%% %8.1f%% %8.1f%% %9.1f%% %9.1f%%\n",
+                    100.0*ls.count/sf, 100.0*ls.lines/sl, 100.0*ls.blank/sb, 100.0*ls.comment/sco, 100.0*ls.code/sc, 100.0*ls.complexity/sx);
+            else
+                snprintf(buf, sizeof(buf), "Percentage %21.1f%% %10.1f%% %8.1f%% %9.1f%% %9.1f%%\n",
+                    100.0*ls.count/sf, 100.0*ls.lines/sl, 100.0*ls.blank/sb, 100.0*ls.comment/sco, 100.0*ls.code/sc);
+            out += buf;
+        }
+
+        /* Max/Mean line length */
+        if (opts.maxMean) {
+            /* Collect line lengths from files */
+            std::vector<int> llens;
+            for (auto* f : ls.files) llens.insert(llens.end(), f->lineLength.begin(), f->lineLength.end());
+            int mx = maxIn(llens), mn = meanIn(llens);
+            if (!opts.noComplexity)
+                snprintf(buf, sizeof(buf), "MaxLine / MeanLine %6d %11d\n", mx, mn);
+            else
+                snprintf(buf, sizeof(buf), "MaxLine / MeanLine %14d %11d\n", mx, mn);
+            out += buf;
+        }
+
+        /* ULOC per language */
+        if (opts.uloc) {
+            if (!opts.noComplexity)
+                snprintf(buf, sizeof(buf), "(ULOC) %30d\n", ls.uloc);
+            else
+                snprintf(buf, sizeof(buf), "(ULOC) %38d\n", ls.uloc);
+            out += buf;
+        }
+
+        if (opts.byFile) {
             out += brk;
             for (auto* f : ls.files) {
                 std::string loc = f->location;
-                if (wide) {
+                if (opts.wide) {
                     if (loc.size() > 42) loc = "~" + loc.substr(loc.size() - 41);
                     snprintf(buf, sizeof(buf), "%-43s %9ld %8ld %9ld %8ld %10ld %16.2f\n",
                              loc.c_str(), f->lines, f->blank, f->comment, f->code, f->complexity, f->weightedComplexity);
-                } else if (!noComplexity) {
+                } else if (!opts.noComplexity) {
                     if (loc.size() > 26) loc = "~" + loc.substr(loc.size() - 25);
                     snprintf(buf, sizeof(buf), "%-27s %9ld %9ld %9ld %10ld %10ld\n",
                              loc.c_str(), f->lines, f->blank, f->comment, f->code, f->complexity);
@@ -177,16 +218,21 @@ std::string formatTabular(std::vector<FileJob*>& jobs, bool byFile,
                 out += buf;
             }
         }
+
+        /* Separator after percent/uloc/maxmean rows */
+        if ((opts.percent || opts.maxMean || opts.uloc) && !opts.byFile && &ls != &langs.back()) {
+            out += shortBreakCi;
+        }
     }
 
-    /* Total */
+    /* Total row */
     out += brk;
     double totalWC = 0;
     for (auto& ls : langs) totalWC += ls.weightedComplexity;
-    if (wide) {
+    if (opts.wide) {
         snprintf(buf, sizeof(buf), "%-33s %9ld %9ld %8ld %9ld %8ld %10ld %16.2f\n",
                  "Total", sf, sl, sb, sco, sc, sx, totalWC);
-    } else if (!noComplexity) {
+    } else if (!opts.noComplexity) {
         snprintf(buf, sizeof(buf), "%-15s %9ld %11ld %9ld %9ld %10ld %10ld\n",
                  "Total", sf, sl, sb, sco, sc, sx);
     } else {
@@ -196,15 +242,33 @@ std::string formatTabular(std::vector<FileJob*>& jobs, bool byFile,
     out += buf;
     out += brk;
 
+    /* Global ULOC */
+    if (opts.uloc) {
+        if (!opts.noComplexity)
+            snprintf(buf, sizeof(buf), "Unique Lines of Code (ULOC) %9d\n", (int)ulocGlobalCount.size());
+        else
+            snprintf(buf, sizeof(buf), "Unique Lines of Code (ULOC) %9d\n", (int)ulocGlobalCount.size());
+        out += buf;
+        if (opts.dryness && sl > 0) {
+            double dry = 100.0 * ulocGlobalCount.size() / (double)sl;
+            if (!opts.noComplexity)
+                snprintf(buf, sizeof(buf), "DRYness %% %27.2f\n", dry);
+            else
+                snprintf(buf, sizeof(buf), "DRYness %% %27.2f\n", dry);
+            out += buf;
+        }
+        out += brk;
+    }
+
     return out;
 }
 
 /* ---- JSON ---- */
 
-std::string formatJSON(std::vector<FileJob*>& jobs, bool byFile) {
+std::string formatJSON(std::vector<FileJob*>& jobs, const FormatOptions& opts) {
     std::vector<LanguageSummary> langs;
     int64_t sf, sl, sc, sco, sb, sx;
-    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, byFile, "files");
+    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, opts);
 
     std::string out = "[";
     for (size_t i = 0; i < langs.size(); i++) {
@@ -244,10 +308,10 @@ std::string formatJSON2(std::vector<FileJob*>& jobs) {
 
 /* ---- CSV ---- */
 
-std::string formatCSV(std::vector<FileJob*>& jobs, bool byFile) {
+std::string formatCSV(std::vector<FileJob*>& jobs, const FormatOptions& opts) {
     std::vector<LanguageSummary> langs;
     int64_t sf, sl, sc, sco, sb, sx;
-    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, byFile, "files");
+    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, opts);
 
     std::string out = "Language,Files,Lines,Blanks,Comments,Code,Complexity,Bytes\n";
     char buf[512];
@@ -270,7 +334,8 @@ std::string formatCSV(std::vector<FileJob*>& jobs, bool byFile) {
 std::string formatClocYAML(std::vector<FileJob*>& jobs) {
     std::vector<LanguageSummary> langs;
     int64_t sf, sl, sc, sco, sb, sx;
-    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, false, "files");
+    FormatOptions defOpts;
+    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, defOpts);
 
     std::string out;
     char buf[256];
@@ -302,25 +367,13 @@ std::string formatClocYAML(std::vector<FileJob*>& jobs) {
 
 /* ---- Format dispatch ---- */
 
-std::string formatDispatch(const std::string& formatName,
-                           std::vector<FileJob*>& jobs,
-                           bool byFile, bool noComplexity,
-                           bool wide, bool ci,
-                           const std::string& sortBy) {
-    if (icaseEq(formatName, "json"))
-        return formatJSON(jobs, byFile);
-    if (icaseEq(formatName, "json2"))
-        return formatJSON2(jobs);
-    if (icaseEq(formatName, "csv"))
-        return formatCSV(jobs, byFile);
-    if (icaseEq(formatName, "csv-stream"))
-        return formatCSV(jobs, byFile); /* same output, stream just doesn't buffer */
-    if (icaseEq(formatName, "cloc-yaml") || icaseEq(formatName, "cloc-yml"))
-        return formatClocYAML(jobs);
-    if (icaseEq(formatName, "wide"))
-        return formatTabular(jobs, byFile, noComplexity, true, ci, sortBy);
-    /* Default: tabular */
-    return formatTabular(jobs, byFile, noComplexity, wide, ci, sortBy);
+std::string formatDispatch(const FormatOptions& opts, std::vector<FileJob*>& jobs) {
+    const auto& fn = opts.formatName;
+    if (icaseEq(fn, "json"))  return formatJSON(jobs, opts);
+    if (icaseEq(fn, "json2")) return formatJSON2(jobs);
+    if (icaseEq(fn, "csv") || icaseEq(fn, "csv-stream")) return formatCSV(jobs, opts);
+    if (icaseEq(fn, "cloc-yaml") || icaseEq(fn, "cloc-yml")) return formatClocYAML(jobs);
+    return formatTabular(jobs, opts);
 }
 
 /* ---- Languages ---- */
