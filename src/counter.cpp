@@ -100,7 +100,8 @@ struct StateResult {
 
 static StateResult codeState(FileJob* job, int index, int endPoint, int64_t currentState,
                               std::vector<uint8_t>& endString, std::vector<std::vector<uint8_t>>& endComments,
-                              const LanguageFeature& feat, bool& ignoreEscape, bool skipComplexity) {
+                              const LanguageFeature& feat, bool& ignoreEscape, bool skipComplexity,
+                              bool checkBinary) {
     auto& content = job->content;
     for (int i = index; i <= endPoint; i++) {
         uint8_t cur = content[i];
@@ -110,7 +111,7 @@ static StateResult codeState(FileJob* job, int index, int endPoint, int64_t curr
 
         if (cur == '\n') return {i, currentState};
 
-        if (i < 10000 && cur == 0) { job->binary = true; return {i, currentState}; }
+        if (checkBinary && i < 10000 && cur == 0) { job->binary = true; return {i, currentState}; }
 
         if (cur & feat.processMask) {
             auto m = feat.tokens->match(&content[i], content.size() - i);
@@ -291,7 +292,7 @@ static StateResult blankState(FileJob* job, int index, int64_t currentState,
 
 /* ---- Main CountStats ---- */
 
-void countStats(FileJob* job, bool skipComplexity) {
+void countStats(FileJob* job, const CountOptions& opts) {
     if (job->bytes == 0) { job->lines = 0; return; }
 
     auto it = languageFeatures.find(job->language);
@@ -322,7 +323,7 @@ void countStats(FileJob* job, bool skipComplexity) {
             StateResult sr = {index, currentState};
             switch (currentState) {
                 case S_CODE:
-                    sr = codeState(job, index, endPoint, currentState, endString, endComments, feat, ignoreEscape, skipComplexity);
+                    sr = codeState(job, index, endPoint, currentState, endString, endComments, feat, ignoreEscape, opts.skipComplexity, opts.checkBinary);
                     break;
                 case S_STRING:
                     sr = stringState(job, index, endPoint, endString, currentState, ignoreEscape);
@@ -336,7 +337,7 @@ void countStats(FileJob* job, bool skipComplexity) {
                     break;
                 case S_BLANK:
                 case S_MULTICOMMENT_BLANK:
-                    sr = blankState(job, index, currentState, endComments, endString, feat, ignoreEscape, skipComplexity);
+                    sr = blankState(job, index, currentState, endComments, endString, feat, ignoreEscape, opts.skipComplexity);
                     break;
             }
             index = sr.index;
@@ -367,4 +368,83 @@ void countStats(FileJob* job, bool skipComplexity) {
             currentState = resetState(currentState);
         }
     }
+
+    /* ---- Post-processing: generated, minified, ULOC ---- */
+
+    /* Generated file detection (check first 1000 bytes for markers) */
+    if (opts.checkGenerated && !opts.generatedMarkers.empty()) {
+        size_t headLen = std::min(job->content.size(), (size_t)1000);
+        std::string head(job->content.begin(), job->content.begin() + headLen);
+        /* Lowercase */
+        for (auto& c : head) c = (char)std::tolower((unsigned char)c);
+        for (const auto& marker : opts.generatedMarkers) {
+            std::string mlow = marker;
+            for (auto& c : mlow) c = (char)std::tolower((unsigned char)c);
+            if (head.find(mlow) != std::string::npos) {
+                job->generated = true;
+                job->language += " (gen)";
+                break;
+            }
+        }
+    }
+
+    /* Minified file detection (average line length) */
+    if (!job->generated && opts.checkMinified && job->lines > 0) {
+        int avgLineBytes = (int)job->content.size() / (int)job->lines;
+        if (avgLineBytes >= opts.minGenLineLength) {
+            job->minified = true;
+            job->language += " (min)";
+        }
+    }
+
+    /* Per-file ULOC */
+    if (job->content.size() > 1) {
+        /* Count unique lines (trim trailing newline, split by newline) */
+        std::unordered_set<std::string> unique;
+        size_t start = 0;
+        auto& c = job->content;
+        /* Skip trailing newline for splitting */
+        size_t end = c.size();
+        while (end > 0 && c[end - 1] == '\n') end--;
+        for (size_t i = 0; i <= end; i++) {
+            if (i == end || c[i] == '\n') {
+                unique.insert(std::string(c.begin() + start, c.begin() + i));
+                start = i + 1;
+            }
+        }
+        job->uloc = (int)unique.size();
+    }
+}
+
+/* ---- Global ULOC state ---- */
+
+std::mutex ulocMutex;
+std::unordered_set<std::string> ulocGlobalCount;
+std::unordered_map<std::string, std::unordered_set<std::string>> ulocLanguageCount;
+
+void trackUloc(FileJob* job) {
+    if (job->content.empty()) return;
+    std::lock_guard<std::mutex> lock(ulocMutex);
+    size_t start = 0;
+    auto& c = job->content;
+    size_t end = c.size();
+    while (end > 0 && c[end - 1] == '\n') end--;
+    for (size_t i = 0; i <= end; i++) {
+        if (i == end || c[i] == '\n') {
+            std::string line(c.begin() + start, c.begin() + i);
+            ulocGlobalCount.insert(line);
+            ulocLanguageCount[job->language].insert(line);
+            start = i + 1;
+        }
+    }
+}
+
+/* Simple FNV-1a 64-bit hash for duplicate detection */
+uint64_t hashContent(const std::vector<uint8_t>& data) {
+    uint64_t hash = 14695981039346656037ULL;
+    for (uint8_t b : data) {
+        hash ^= b;
+        hash *= 1099511628211ULL;
+    }
+    return hash;
 }
