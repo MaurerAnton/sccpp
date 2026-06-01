@@ -155,22 +155,11 @@ std::string detectSheBang(const std::string& content) {
     return "";
 }
 
-static bool bytesContains(const std::vector<uint8_t>& haystack, const std::vector<uint8_t>& needle) {
-    if (needle.empty()) return false;
-    for (size_t i = 0; i + needle.size() <= haystack.size(); i++) {
-        bool match = true;
-        for (size_t j = 0; j < needle.size(); j++) {
-            if (haystack[i + j] != needle[j]) { match = false; break; }
-        }
-        if (match) return true;
-    }
-    return false;
-}
-
 std::string determineLanguage(const std::string& filename,
                                const std::string& fallbackLanguage,
                                const std::vector<std::string>& possibleLanguages,
                                const std::vector<uint8_t>& content) {
+    (void)filename;
     if (possibleLanguages.empty()) return fallbackLanguage;
     if (possibleLanguages.size() == 1) return possibleLanguages[0];
 

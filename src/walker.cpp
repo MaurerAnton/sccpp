@@ -94,10 +94,10 @@ void walkAndProcess(
     const std::vector<std::string>& pathDenyList,
     const std::vector<std::string>& allowListExtensions,
     const std::vector<std::string>& excludeListExtensions,
-    const std::vector<std::string>& excludeFilename,
+    const std::vector<std::string>& excludeFilenames,
     bool includeSymLinks,
     bool noLarge,
-    int64_t largeLineCount,
+    int64_t /*largeLineCount*/,
     int64_t largeByteCount,
     std::vector<FileJob*>& outJobs) {
 
@@ -174,9 +174,9 @@ void walkAndProcess(
             if (excluded) continue;
         }
 
-        if (!excludeFilename.empty()) {
+        if (!excludeFilenames.empty()) {
             bool excluded = false;
-            for (auto& ef : excludeFilename) {
+            for (auto& ef : excludeFilenames) {
                 if (wr.filename.find(ef) != std::string::npos) { excluded = true; break; }
             }
             if (excluded) continue;

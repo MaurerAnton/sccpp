@@ -158,7 +158,7 @@ int main(int argc, char* argv[]) {
                 else if (job->possibleLanguages.size() == 1)
                     job->language = job->possibleLanguages[0];
 
-                countStats(job);
+                countStats(job, flagNoComplexity);
             }
         });
     }

@@ -4,6 +4,7 @@
 #include <cstring>
 #include <algorithm>
 #include <unordered_map>
+#include <functional>
 
 static std::string shortBreak(bool ci) {
     return ci
@@ -11,33 +12,98 @@ static std::string shortBreak(bool ci) {
         : "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\n";
 }
 
-static std::string shortBreakCi = "-------------------------------------------------------------------------------\n";
-
-static int maxIn(const std::vector<int>& v) {
-    if (v.empty()) return 0;
-    return *std::max_element(v.begin(), v.end());
+static bool icaseEq(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); i++)
+        if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false;
+    return true;
 }
 
-static int meanIn(const std::vector<int>& v) {
-    if (v.empty()) return 0;
-    int64_t sum = 0;
-    for (auto x : v) sum += x;
-    return (int)(sum / v.size());
+static std::function<bool(const LanguageSummary&, const LanguageSummary&)> makeLangSorter(const std::string& sortBy) {
+    if (icaseEq(sortBy, "name") || icaseEq(sortBy, "names") ||
+        icaseEq(sortBy, "language") || icaseEq(sortBy, "languages") ||
+        icaseEq(sortBy, "lang") || icaseEq(sortBy, "langs")) {
+        return [](const LanguageSummary& a, const LanguageSummary& b) {
+            return a.name < b.name;
+        };
+    }
+    if (icaseEq(sortBy, "line") || icaseEq(sortBy, "lines")) {
+        return [](const LanguageSummary& a, const LanguageSummary& b) {
+            if (a.lines != b.lines) return a.lines > b.lines;
+            return a.name < b.name;
+        };
+    }
+    if (icaseEq(sortBy, "blank") || icaseEq(sortBy, "blanks")) {
+        return [](const LanguageSummary& a, const LanguageSummary& b) {
+            if (a.blank != b.blank) return a.blank > b.blank;
+            return a.name < b.name;
+        };
+    }
+    if (icaseEq(sortBy, "code") || icaseEq(sortBy, "codes")) {
+        return [](const LanguageSummary& a, const LanguageSummary& b) {
+            if (a.code != b.code) return a.code > b.code;
+            return a.name < b.name;
+        };
+    }
+    if (icaseEq(sortBy, "comment") || icaseEq(sortBy, "comments")) {
+        return [](const LanguageSummary& a, const LanguageSummary& b) {
+            if (a.comment != b.comment) return a.comment > b.comment;
+            return a.name < b.name;
+        };
+    }
+    if (icaseEq(sortBy, "complexity") || icaseEq(sortBy, "complexitys") || icaseEq(sortBy, "comp")) {
+        return [](const LanguageSummary& a, const LanguageSummary& b) {
+            if (a.complexity != b.complexity) return a.complexity > b.complexity;
+            return a.name < b.name;
+        };
+    }
+    if (icaseEq(sortBy, "byte") || icaseEq(sortBy, "bytes")) {
+        return [](const LanguageSummary& a, const LanguageSummary& b) {
+            if (a.bytes != b.bytes) return a.bytes > b.bytes;
+            return a.name < b.name;
+        };
+    }
+    /* Default: files */
+    return [](const LanguageSummary& a, const LanguageSummary& b) {
+        if (a.count != b.count) return a.count > b.count;
+        return a.name < b.name;
+    };
+}
+
+static std::function<bool(FileJob*, FileJob*)> makeFileSorter(const std::string& sortBy) {
+    if (icaseEq(sortBy, "name") || icaseEq(sortBy, "names") ||
+        icaseEq(sortBy, "language") || icaseEq(sortBy, "languages")) {
+        return [](FileJob* a, FileJob* b) { return a->location < b->location; };
+    }
+    if (icaseEq(sortBy, "line") || icaseEq(sortBy, "lines")) {
+        return [](FileJob* a, FileJob* b) { return a->lines > b->lines; };
+    }
+    if (icaseEq(sortBy, "blank") || icaseEq(sortBy, "blanks")) {
+        return [](FileJob* a, FileJob* b) { return a->blank > b->blank; };
+    }
+    if (icaseEq(sortBy, "code") || icaseEq(sortBy, "codes")) {
+        return [](FileJob* a, FileJob* b) { return a->code > b->code; };
+    }
+    if (icaseEq(sortBy, "comment") || icaseEq(sortBy, "comments")) {
+        return [](FileJob* a, FileJob* b) { return a->comment > b->comment; };
+    }
+    if (icaseEq(sortBy, "complexity") || icaseEq(sortBy, "complexitys")) {
+        return [](FileJob* a, FileJob* b) { return a->complexity > b->complexity; };
+    }
+    return [](FileJob* a, FileJob* b) { return a->lines > b->lines; };
 }
 
 std::string formatTabular(std::vector<FileJob*>& jobs, bool byFile,
-                          bool noComplexity, bool more, bool ci,
-                          bool noCocomo, bool noSize,
+                          bool noComplexity, bool /*more*/, bool ci,
+                          bool /*noCocomo*/, bool /*noSize*/,
                           const std::string& sortBy) {
-
-    (void)sortBy; /* TODO: implement sorting */
 
     std::string sb = shortBreak(ci);
     std::string out;
 
     /* Aggregate by language */
     std::unordered_map<std::string, LanguageSummary> langs;
-    int64_t sumFiles = 0, sumLines = 0, sumCode = 0, sumComment = 0, sumBlank = 0, sumComplexity = 0, sumBytes = 0;
+    int64_t sumFiles = 0, sumLines = 0, sumCode = 0, sumComment = 0, sumBlank = 0, sumComplexity = 0;
 
     for (auto* job : jobs) {
         sumFiles++;
@@ -46,7 +112,6 @@ std::string formatTabular(std::vector<FileJob*>& jobs, bool byFile,
         sumComment += job->comment;
         sumBlank += job->blank;
         sumComplexity += job->complexity;
-        sumBytes += job->bytes;
 
         auto& ls = langs[job->language];
         if (ls.count == 0) {
@@ -71,13 +136,13 @@ std::string formatTabular(std::vector<FileJob*>& jobs, bool byFile,
         }
     }
 
-    /* Sort languages by file count descending */
+    /* Sort languages */
     std::vector<LanguageSummary> sortedLangs;
     for (auto& [name, ls] : langs) sortedLangs.push_back(ls);
-    std::sort(sortedLangs.begin(), sortedLangs.end(), [](const LanguageSummary& a, const LanguageSummary& b) {
-        if (a.count != b.count) return a.count > b.count;
-        return a.name < b.name;
-    });
+    auto langSorter = makeLangSorter(sortBy);
+    std::sort(sortedLangs.begin(), sortedLangs.end(), langSorter);
+
+    auto fileSorter = makeFileSorter(sortBy);
 
     /* Header */
     out += sb;
@@ -113,10 +178,7 @@ std::string formatTabular(std::vector<FileJob*>& jobs, bool byFile,
         out += buf;
 
         if (byFile) {
-            /* Sort files by lines */
-            std::sort(ls.files.begin(), ls.files.end(), [](FileJob* a, FileJob* b) {
-                return b->lines > a->lines;
-            });
+            std::sort(ls.files.begin(), ls.files.end(), fileSorter);
             out += sb;
             for (auto* f : ls.files) {
                 std::string loc = f->location;

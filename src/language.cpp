@@ -93,6 +93,7 @@ void initLanguageDatabase() {
 }
 
 void processLanguageFeature(const std::string& name, const Language& lang, LanguageFeature& feat) {
+    (void)name;
     std::unique_ptr<Trie> complexityTrie = std::make_unique<Trie>();
     std::unique_ptr<Trie> slCommentTrie = std::make_unique<Trie>();
     std::unique_ptr<Trie> mlCommentTrie = std::make_unique<Trie>();

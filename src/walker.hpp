@@ -24,7 +24,7 @@ void walkAndProcess(
     const std::vector<std::string>& pathDenyList,
     const std::vector<std::string>& allowListExtensions,
     const std::vector<std::string>& excludeListExtensions,
-    const std::vector<std::string>& excludeFilename,
+    const std::vector<std::string>& excludeFilenames,
     bool includeSymLinks,
     bool noLarge,
     int64_t largeLineCount,

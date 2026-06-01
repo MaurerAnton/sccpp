@@ -3,7 +3,8 @@
 
 #include "common.hpp"
 
-/* CountStats - the core state machine that processes file content */
-void countStats(FileJob* job);
+/* CountStats - the core state machine that processes file content.
+   If skipComplexity is true, complexity counting is disabled. */
+void countStats(FileJob* job, bool skipComplexity = false);
 
 #endif

@@ -100,7 +100,7 @@ struct StateResult {
 
 static StateResult codeState(FileJob* job, int index, int endPoint, int64_t currentState,
                               std::vector<uint8_t>& endString, std::vector<std::vector<uint8_t>>& endComments,
-                              const LanguageFeature& feat, bool& ignoreEscape) {
+                              const LanguageFeature& feat, bool& ignoreEscape, bool skipComplexity) {
     auto& content = job->content;
     for (int i = index; i <= endPoint; i++) {
         uint8_t cur = content[i];
@@ -140,13 +140,16 @@ static StateResult codeState(FileJob* job, int index, int endPoint, int64_t curr
                         }
                         break;
                     case T_COMPLEXITY:
-                        if (i == 0 || isWhitespace(content[i - 1])) {
-                            job->complexity++;
-                            bumpComplexityLine(job);
+                        if (!skipComplexity) {
+                            if (i == 0 || isWhitespace(content[i - 1])) {
+                                job->complexity++;
+                                bumpComplexityLine(job);
+                            }
                         }
                         break;
                     case T_COMPLEXITY_POSTFIX:
-                        countComplexityPostfix(job, i, m.depth + 1, feat.postfixExcludes);
+                        if (!skipComplexity)
+                            countComplexityPostfix(job, i, m.depth + 1, feat.postfixExcludes);
                         break;
                 }
             }
@@ -237,7 +240,8 @@ static StateResult commentState(FileJob* job, int index, int endPoint, int64_t c
 static StateResult blankState(FileJob* job, int index, int64_t currentState,
                                std::vector<std::vector<uint8_t>>& endComments,
                                std::vector<uint8_t>& endString,
-                               const LanguageFeature& feat, bool& ignoreEscape) {
+                               const LanguageFeature& feat, bool& ignoreEscape,
+                               bool skipComplexity) {
     auto& content = job->content;
     auto m = feat.tokens->match(&content[index], content.size() - index);
 
@@ -268,13 +272,16 @@ static StateResult blankState(FileJob* job, int index, int64_t currentState,
             return {index, isDS ? S_DOCSTRING : S_STRING};
         }
         case T_COMPLEXITY:
-            if (index == 0 || isWhitespace(content[index - 1])) {
-                job->complexity++;
-                bumpComplexityLine(job);
+            if (!skipComplexity) {
+                if (index == 0 || isWhitespace(content[index - 1])) {
+                    job->complexity++;
+                    bumpComplexityLine(job);
+                }
             }
             return {index, S_CODE};
         case T_COMPLEXITY_POSTFIX:
-            countComplexityPostfix(job, index, m.depth + 1, feat.postfixExcludes);
+            if (!skipComplexity)
+                countComplexityPostfix(job, index, m.depth + 1, feat.postfixExcludes);
             return {index, S_CODE};
         default:
             return {index, S_CODE};
@@ -284,7 +291,7 @@ static StateResult blankState(FileJob* job, int index, int64_t currentState,
 
 /* ---- Main CountStats ---- */
 
-void countStats(FileJob* job) {
+void countStats(FileJob* job, bool skipComplexity) {
     if (job->bytes == 0) { job->lines = 0; return; }
 
     auto it = languageFeatures.find(job->language);
@@ -315,7 +322,7 @@ void countStats(FileJob* job) {
             StateResult sr = {index, currentState};
             switch (currentState) {
                 case S_CODE:
-                    sr = codeState(job, index, endPoint, currentState, endString, endComments, feat, ignoreEscape);
+                    sr = codeState(job, index, endPoint, currentState, endString, endComments, feat, ignoreEscape, skipComplexity);
                     break;
                 case S_STRING:
                     sr = stringState(job, index, endPoint, endString, currentState, ignoreEscape);
@@ -329,7 +336,7 @@ void countStats(FileJob* job) {
                     break;
                 case S_BLANK:
                 case S_MULTICOMMENT_BLANK:
-                    sr = blankState(job, index, currentState, endComments, endString, feat, ignoreEscape);
+                    sr = blankState(job, index, currentState, endComments, endString, feat, ignoreEscape, skipComplexity);
                     break;
             }
             index = sr.index;
