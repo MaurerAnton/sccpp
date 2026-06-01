@@ -373,10 +373,23 @@ skip_parse:
     auto excludeFns = splitCSV(flagExcludeFile);
 
     /* Walk and collect jobs */
+    WalkOptions wOpts;
+    wOpts.pathDenyList = excludeDirs;
+    wOpts.allowListExtensions = allowExts;
+    wOpts.excludeListExtensions = excludeExts;
+    wOpts.excludeFilenames = excludeFns;
+    wOpts.includeSymLinks = flagIncludeSymLinks;
+    wOpts.noLarge = flagNoLarge;
+    wOpts.largeLineCount = flagLargeLineCount;
+    wOpts.largeByteCount = flagLargeByteCount;
+    wOpts.noGitignore = flagNoGitignore;
+    wOpts.noIgnore = flagNoIgnore;
+    wOpts.noSccIgnore = flagNoSccIgnore;
+    wOpts.noGitmodule = flagNoGitmodule;
+    wOpts.countIgnore = flagCountIgnore;
+
     std::vector<FileJob*> jobs;
-    walkAndProcess(paths, excludeDirs, allowExts, excludeExts, excludeFns,
-                   flagIncludeSymLinks, flagNoLarge,
-                   flagLargeLineCount, flagLargeByteCount, jobs);
+    walkAndProcess(paths, wOpts, jobs);
 
     if (jobs.empty()) {
         fprintf(stdout, "No files found to process\n");
@@ -405,6 +418,10 @@ skip_parse:
 
                 if (job->content.empty()) { job->lines = 0; continue; }
 
+                /* Set language from possibleLanguages before checks */
+                if (job->possibleLanguages.size() == 1)
+                    job->language = job->possibleLanguages[0];
+
                 /* Remap-all check (runs before shebang detection) */
                 if (!remapAllRules.empty()) hardRemapLanguage(job, remapAllRules, {});
 
@@ -415,7 +432,7 @@ skip_parse:
                             std::string(reinterpret_cast<const char*>(job->content.data()),
                                         std::min(job->content.size(), (size_t)200)));
                         if (!sb.empty()) { job->language = sb; loadLanguageFeature(sb); }
-                        else continue;
+                        else { job->lines = -1; continue; }  /* mark for removal */
                     }
                 }
 

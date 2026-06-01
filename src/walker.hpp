@@ -2,14 +2,10 @@
 #define SCCPP_WALKER_HPP
 
 #include "common.hpp"
+#include "gitignore.hpp"
 #include <string>
 #include <vector>
-#include <functional>
-#include <thread>
-#include <mutex>
-#include <queue>
 
-/* File walker that traverses directories and finds code files */
 struct WalkResult {
     std::string path;
     std::string filename;
@@ -18,24 +14,30 @@ struct WalkResult {
     bool isSymlink;
 };
 
-/* Process all paths (files and dirs), push FileJobs to output queue */
+/* Walk options */
+struct WalkOptions {
+    std::vector<std::string> pathDenyList;
+    std::vector<std::string> allowListExtensions;
+    std::vector<std::string> excludeListExtensions;
+    std::vector<std::string> excludeFilenames;
+    bool includeSymLinks = false;
+    bool noLarge = false;
+    int64_t largeLineCount = 40000;
+    int64_t largeByteCount = 1000000;
+    bool noGitignore = false;
+    bool noIgnore = false;
+    bool noSccIgnore = false;
+    bool noGitmodule = false;
+    bool countIgnore = false;
+};
+
 void walkAndProcess(
     const std::vector<std::string>& dirFilePaths,
-    const std::vector<std::string>& pathDenyList,
-    const std::vector<std::string>& allowListExtensions,
-    const std::vector<std::string>& excludeListExtensions,
-    const std::vector<std::string>& excludeFilenames,
-    bool includeSymLinks,
-    bool noLarge,
-    int64_t largeLineCount,
-    int64_t largeByteCount,
+    const WalkOptions& opts,
     std::vector<FileJob*>& outJobs
 );
 
-/* Check if a file is binary by looking for NUL in first 10000 bytes */
-bool isFileBinary(const std::string& path);
-
-/* Read file content */
 std::vector<uint8_t> readFileContent(const std::string& path, int maxBytes);
+bool isFileBinary(const std::string& path);
 
 #endif

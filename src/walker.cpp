@@ -8,48 +8,117 @@
 #include <dirent.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <stack>
 
-static bool pathInList(const std::string& path, const std::vector<std::string>& list) {
-    /* Extract directory name from path */
-    std::string dirName;
-    size_t slash = path.rfind('/');
-    if (slash != std::string::npos) dirName = path.substr(slash + 1);
-    else dirName = path;
+static bool pathInList(const std::string& name, const std::vector<std::string>& list) {
     for (auto& d : list) {
-        if (dirName == d) return true;
+        if (name == d) return true;
     }
     return false;
 }
 
+struct DirContext {
+    std::string path;
+    GitignoreMatcher gitignore;
+    GitignoreMatcher ignoreFile;
+    GitignoreMatcher sccignore;
+    bool loadedGitignore = false;
+    bool loadedIgnore = false;
+    bool loadedSccignore = false;
+};
+
 static void walkDir(const std::string& dirPath,
-                    const std::vector<std::string>& pathDenyList,
-                    std::vector<WalkResult>& results) {
+                    const WalkOptions& opts,
+                    std::vector<WalkResult>& results,
+                    DirContext* parentCtx = nullptr) {
+
     DIR* dir = opendir(dirPath.c_str());
     if (!dir) return;
+
+    /* Build context for this directory */
+    DirContext ctx;
+    ctx.path = dirPath;
+
+    /* Inherit parent's gitignore if we don't have our own */
+    if (parentCtx) {
+        ctx.gitignore = parentCtx->gitignore;
+        ctx.ignoreFile = parentCtx->ignoreFile;
+        ctx.sccignore = parentCtx->sccignore;
+        ctx.loadedGitignore = parentCtx->loadedGitignore;
+        ctx.loadedIgnore = parentCtx->loadedIgnore;
+        ctx.loadedSccignore = parentCtx->loadedSccignore;
+    }
+
+    /* Try to load .gitignore from this directory */
+    if (!opts.noGitignore && !ctx.loadedGitignore) {
+        std::string giPath = dirPath + "/.gitignore";
+        struct stat st;
+        if (stat(giPath.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+            ctx.gitignore.loadFile(giPath);
+            ctx.loadedGitignore = true;
+        }
+    }
+
+    /* Try to load .ignore from this directory */
+    if (!opts.noIgnore && !ctx.loadedIgnore) {
+        std::string igPath = dirPath + "/.ignore";
+        struct stat st;
+        if (stat(igPath.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+            ctx.ignoreFile.loadFile(igPath);
+            ctx.loadedIgnore = true;
+        }
+    }
+
+    /* Try to load .sccignore from this directory */
+    if (!opts.noSccIgnore && !ctx.loadedSccignore) {
+        std::string scPath = dirPath + "/.sccignore";
+        struct stat st;
+        if (stat(scPath.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+            ctx.sccignore.loadFile(scPath);
+            ctx.loadedSccignore = true;
+        }
+    }
 
     struct dirent* entry;
     while ((entry = readdir(dir)) != nullptr) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
             continue;
 
-        std::string fullPath = dirPath + "/" + entry->d_name;
-
-        if (pathInList(entry->d_name, pathDenyList)) continue;
+        std::string name = entry->d_name;
+        std::string fullPath = dirPath + "/" + name;
 
         struct stat st;
         if (lstat(fullPath.c_str(), &st) != 0) continue;
 
+        bool isDir = S_ISDIR(st.st_mode);
+
+        /* Check .gitignore patterns */
+        std::string relPath = fullPath;
+        /* Make path relative to where the gitignore was loaded */
+        if (!ctx.gitignore.isIgnored(name, isDir) &&
+            !ctx.ignoreFile.isIgnored(name, isDir) &&
+            !ctx.sccignore.isIgnored(name, isDir)) {
+            /* Not ignored by any ignore file */
+        } else {
+            continue; /* Skip ignored files/dirs */
+        }
+
+        /* Check path deny list */
+        if (pathInList(name, opts.pathDenyList)) continue;
+
         WalkResult wr;
         wr.path = fullPath;
-        wr.filename = entry->d_name;
+        wr.filename = name;
         wr.size = st.st_size;
-        wr.isDir = S_ISDIR(st.st_mode);
+        wr.isDir = isDir;
         wr.isSymlink = S_ISLNK(st.st_mode);
 
-        results.push_back(wr);
+        if (!isDir) {
+            results.push_back(wr);
+        }
 
-        if (wr.isDir && !wr.isSymlink) {
-            walkDir(fullPath, pathDenyList, results);
+        if (isDir && !wr.isSymlink) {
+            walkDir(fullPath, opts, results, &ctx);
         }
     }
     closedir(dir);
@@ -91,14 +160,7 @@ bool isFileBinary(const std::string& path) {
 
 void walkAndProcess(
     const std::vector<std::string>& dirFilePaths,
-    const std::vector<std::string>& pathDenyList,
-    const std::vector<std::string>& allowListExtensions,
-    const std::vector<std::string>& excludeListExtensions,
-    const std::vector<std::string>& excludeFilenames,
-    bool includeSymLinks,
-    bool noLarge,
-    int64_t /*largeLineCount*/,
-    int64_t largeByteCount,
+    const WalkOptions& opts,
     std::vector<FileJob*>& outJobs) {
 
     /* Collect all walk results */
@@ -109,7 +171,7 @@ void walkAndProcess(
         if (lstat(p.c_str(), &st) != 0) continue;
 
         if (S_ISDIR(st.st_mode)) {
-            walkDir(p, pathDenyList, allResults);
+            walkDir(p, opts, allResults);
         } else {
             WalkResult wr;
             wr.path = p;
@@ -128,18 +190,16 @@ void walkAndProcess(
         /* Symlink handling */
         std::string realPath = wr.path;
         if (wr.isSymlink) {
-            if (!includeSymLinks) continue;
+            if (!opts.includeSymLinks) continue;
             char buf[4096];
             ssize_t n = readlink(wr.path.c_str(), buf, sizeof(buf) - 1);
             if (n <= 0) continue;
             buf[n] = '\0';
             realPath = buf;
             if (realPath[0] != '/') {
-                /* Resolve relative */
                 std::string dir = wr.path.substr(0, wr.path.rfind('/'));
                 realPath = dir + "/" + realPath;
             }
-            /* Update stat for real path */
             struct stat st2;
             if (stat(realPath.c_str(), &st2) != 0) continue;
             wr.size = st2.st_size;
@@ -151,34 +211,31 @@ void walkAndProcess(
         if (!S_ISREG(rst.st_mode)) continue;
 
         /* Size check */
-        if (noLarge && wr.size >= largeByteCount) continue;
+        if (opts.noLarge && wr.size >= opts.largeByteCount) continue;
 
         /* Language detection */
         auto [langs, ext] = detectLanguage(wr.filename);
         if (langs.empty()) continue;
 
         /* Extension filters */
-        if (!allowListExtensions.empty()) {
+        if (!opts.allowListExtensions.empty()) {
             bool found = false;
-            for (auto& ae : allowListExtensions) {
+            for (auto& ae : opts.allowListExtensions)
                 if (ae == ext) { found = true; break; }
-            }
             if (!found) continue;
         }
 
-        if (!excludeListExtensions.empty()) {
+        if (!opts.excludeListExtensions.empty()) {
             bool excluded = false;
-            for (auto& ee : excludeListExtensions) {
+            for (auto& ee : opts.excludeListExtensions)
                 if (ee == ext) { excluded = true; break; }
-            }
             if (excluded) continue;
         }
 
-        if (!excludeFilenames.empty()) {
+        if (!opts.excludeFilenames.empty()) {
             bool excluded = false;
-            for (auto& ef : excludeFilenames) {
+            for (auto& ef : opts.excludeFilenames)
                 if (wr.filename.find(ef) != std::string::npos) { excluded = true; break; }
-            }
             if (excluded) continue;
         }
 
@@ -191,6 +248,16 @@ void walkAndProcess(
         job->possibleLanguages = langs;
         job->bytes = wr.size;
 
-        outJobs.push_back(job);
+        /* Skip ignore/gitignore files unless --count-ignore */
+        if (!opts.countIgnore) {
+            for (auto& l : langs) {
+                if (l == "ignore" || l == "gitignore") {
+                    delete job;
+                    job = nullptr;
+                    break;
+                }
+            }
+        }
+        if (job) outJobs.push_back(job);
     }
 }
