@@ -82,8 +82,17 @@ static double flagEAF = 1.0;
 static std::string flagCurrencySymbol = "$";
 static bool flagLocomo = false;
 static bool flagCostComparison = false;
+static std::string flagLocomoPreset = "medium";
+static double flagLocomoInputPrice = 0;
+static double flagLocomoOutputPrice = 0;
+static double flagLocomoTPS = 0;
+static bool flagLocomoInputPriceSet = false;
+static bool flagLocomoOutputPriceSet = false;
+static bool flagLocomoTPSSet = false;
+static double flagLocomoCycles = 0;
+static bool flagLocomoCyclesSet = false;
 static std::string flagSizeUnit = "si";
-static bool flagNoSize = true;
+static bool flagNoSize = false;
 
 static void printUsage(const char* prog) {
     fprintf(stderr,
@@ -240,7 +249,10 @@ int main(int argc, char* argv[]) {
         else if (arg == "--binary") flagDisableCheckBinary = true;
         else if (arg == "--no-cocomo") flagNoCocomo = true;
         else if (arg == "--sloccount-format") flagSloccountFormat = true;
-        else if (arg == "--no-size") flagNoSize = false;
+        else if (arg == "--no-size") flagNoSize = true;
+        else if (arg == "--locomo") flagLocomo = true;
+        else if (arg == "--cost-comparison") flagCostComparison = true;
+        else if (arg == "--locomo-cycles" && i + 1 < argc) { flagLocomoCycles = std::atof(argv[++i]); flagLocomoCyclesSet = true; }
         else if ((arg == "-f" || arg == "--format") && i + 1 < argc) flagFormat = argv[++i];
         else if ((arg == "-s" || arg == "--sort") && i + 1 < argc) flagSortBy = argv[++i];
         else if ((arg == "-i" || arg == "--include-ext") && i + 1 < argc) flagAllowExt = argv[++i];
@@ -404,6 +416,8 @@ skip_parse:
     fOpts.formatName = flagFormat;
     fOpts.cocomo = !flagNoCocomo;
     fOpts.sloccountFormat = flagSloccountFormat;
+    fOpts.locomo = flagLocomo || flagCostComparison;
+    fOpts.costComparison = flagCostComparison;
     fOpts.noSize = flagNoSize;
     fOpts.projectType = flagCocomoProjectType;
     fOpts.currencySymbol = flagCurrencySymbol;

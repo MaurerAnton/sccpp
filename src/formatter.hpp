@@ -17,7 +17,9 @@ struct FormatOptions {
     bool maxMean = false;
     bool cocomo = true;        /* show COCOMO by default */
     bool sloccountFormat = false;
-    bool noSize = true;        /* hide size by default */
+    bool locomo = false;       /* LOCOMO LLM cost estimate */
+    bool costComparison = false;
+    bool noSize = false;       /* show size by default */
     std::string sortBy = "files";
     std::string formatName = "tabular";
     std::string projectType = "organic";

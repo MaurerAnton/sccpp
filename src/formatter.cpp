@@ -49,14 +49,15 @@ static void aggregate(const std::vector<FileJob*>& jobs,
                       std::vector<LanguageSummary>& sortedLangs,
                       int64_t& sumFiles, int64_t& sumLines, int64_t& sumCode,
                       int64_t& sumComment, int64_t& sumBlank, int64_t& sumComplexity,
-                      const FormatOptions& opts) {
+                      int64_t& sumBytes, const FormatOptions& opts) {
 
     std::unordered_map<std::string, LanguageSummary> langs;
-    sumFiles = sumLines = sumCode = sumComment = sumBlank = sumComplexity = 0;
+    sumFiles = sumLines = sumCode = sumComment = sumBlank = sumComplexity = sumBytes = 0;
 
     for (auto* job : jobs) {
         sumFiles++; sumLines += job->lines; sumCode += job->code;
         sumComment += job->comment; sumBlank += job->blank; sumComplexity += job->complexity;
+        sumBytes += job->bytes;
 
         double wc = job->code ? (double)job->complexity / (double)job->code * 100.0 : 0.0;
         job->weightedComplexity = wc;
@@ -125,8 +126,8 @@ static int meanIn(const std::vector<int>& v) {
 
 std::string formatTabular(std::vector<FileJob*>& jobs, const FormatOptions& opts) {
     std::vector<LanguageSummary> langs;
-    int64_t sf, sl, sc, sco, sb, sx;
-    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, opts);
+    int64_t sf, sl, sc, sco, sb, sx, sbytes;
+    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, sbytes, opts);
 
     std::string brk = shortBreak(opts.ci, opts.noHborder);
     std::string out;
@@ -268,9 +269,18 @@ std::string formatTabular(std::vector<FileJob*>& jobs, const FormatOptions& opts
         out += brk;
     }
 
+    /* LOCOMO */
+    if (opts.locomo) {
+        auto lr = locomoEstimate(sc, sx, opts.projectType,
+                                  0, 0, 0, 0.01,
+                                  false, false, false, 0, false);
+        out += formatLocomo(lr, opts.currencySymbol);
+        out += brk;
+    }
+
     /* Size */
     if (!opts.noSize) {
-        out += formatSize(sb, opts.sizeUnit);
+        out += formatSize(sbytes, opts.sizeUnit);
         out += brk;
     }
 
@@ -281,8 +291,8 @@ std::string formatTabular(std::vector<FileJob*>& jobs, const FormatOptions& opts
 
 std::string formatJSON(std::vector<FileJob*>& jobs, const FormatOptions& opts) {
     std::vector<LanguageSummary> langs;
-    int64_t sf, sl, sc, sco, sb, sx;
-    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, opts);
+    int64_t sf, sl, sc, sco, sb, sx, sbytes;
+    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, sbytes, opts);
 
     std::string out = "[";
     for (size_t i = 0; i < langs.size(); i++) {
@@ -324,8 +334,8 @@ std::string formatJSON2(std::vector<FileJob*>& jobs) {
 
 std::string formatCSV(std::vector<FileJob*>& jobs, const FormatOptions& opts) {
     std::vector<LanguageSummary> langs;
-    int64_t sf, sl, sc, sco, sb, sx;
-    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, opts);
+    int64_t sf, sl, sc, sco, sb, sx, sbytes;
+    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, sbytes, opts);
 
     std::string out = "Language,Files,Lines,Blanks,Comments,Code,Complexity,Bytes\n";
     char buf[512];
@@ -347,9 +357,9 @@ std::string formatCSV(std::vector<FileJob*>& jobs, const FormatOptions& opts) {
 
 std::string formatClocYAML(std::vector<FileJob*>& jobs) {
     std::vector<LanguageSummary> langs;
-    int64_t sf, sl, sc, sco, sb, sx;
+    int64_t sf, sl, sc, sco, sb, sx, sbytes;
     FormatOptions defOpts;
-    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, defOpts);
+    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, sbytes, defOpts);
 
     std::string out;
     char buf[256];
@@ -397,8 +407,8 @@ static std::string htmlEscape(const std::string& s) {
 
 static std::string formatHtml(std::vector<FileJob*>& jobs, const FormatOptions& opts, bool fullPage) {
     std::vector<LanguageSummary> langs;
-    int64_t sf, sl, sc, sco, sb, sx;
-    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, opts);
+    int64_t sf, sl, sc, sco, sb, sx, sbytes;
+    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, sbytes, opts);
 
     std::string out;
     if (fullPage) {
@@ -431,8 +441,8 @@ static std::string formatHtml(std::vector<FileJob*>& jobs, const FormatOptions& 
 
 static std::string formatOpenMetrics(std::vector<FileJob*>& jobs, const FormatOptions& opts) {
     std::vector<LanguageSummary> langs;
-    int64_t sf, sl, sc, sco, sb, sx;
-    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, opts);
+    int64_t sf, sl, sc, sco, sb, sx, sbytes;
+    aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, sbytes, opts);
 
     std::string out =
         "# TYPE scc_files gauge\n# HELP scc_files Number of sourcecode files.\n"
@@ -467,8 +477,20 @@ std::string formatDispatch(const FormatOptions& opts, std::vector<FileJob*>& job
     if (icaseEq(fn, "html-table")) return formatHtml(jobs, opts, false);
     if (icaseEq(fn, "openmetrics")) return formatOpenMetrics(jobs, opts);
     if (icaseEq(fn, "sql") || icaseEq(fn, "sql-insert")) {
-        /* SQL format: output as CSV for now */
-        return formatCSV(jobs, opts);
+        /* SQL INSERT format */
+        std::vector<LanguageSummary> langs;
+        int64_t sf, sl, sc, sco, sb, sx, sbytes;
+        aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, sbytes, opts);
+        std::string out;
+        char buf[512];
+        for (auto& r : langs) {
+            snprintf(buf, sizeof(buf),
+                "INSERT INTO scc (language,files,lines,blanks,comments,code,complexity,bytes) "
+                "VALUES ('%s',%ld,%ld,%ld,%ld,%ld,%ld,%ld);\n",
+                r.name.c_str(), r.count, r.lines, r.blank, r.comment, r.code, r.complexity, r.bytes);
+            out += buf;
+        }
+        return out;
     }
     return formatTabular(jobs, opts);
 }
