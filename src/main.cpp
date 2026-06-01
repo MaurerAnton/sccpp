@@ -3,6 +3,7 @@
 #include "counter.hpp"
 #include "walker.hpp"
 #include "formatter.hpp"
+#include "cocomo.hpp"
 #include <cstdio>
 #include <cstring>
 #include <thread>
@@ -93,6 +94,7 @@ static double flagLocomoCycles = 0;
 static bool flagLocomoCyclesSet = false;
 static std::string flagSizeUnit = "si";
 static bool flagNoSize = false;
+static std::string flagSQLProject;
 
 static void printUsage(const char* prog) {
     fprintf(stderr,
@@ -201,6 +203,27 @@ int main(int argc, char* argv[]) {
         else if (arg == "-m" || arg == "--character") flagMaxMean = true;
         else if (arg == "--no-hborder") flagNoHborder = true;
         else if (arg == "--binary") flagDisableCheckBinary = true;
+        else if (arg == "--no-cocomo") flagNoCocomo = true;
+        else if (arg == "--sloccount-format") flagSloccountFormat = true;
+        else if (arg == "--no-size") flagNoSize = true;
+        else if (arg == "--locomo") flagLocomo = true;
+        else if (arg == "--cost-comparison") flagCostComparison = true;
+        else if (arg == "--locomo-cycles" && i + 1 < argc) { flagLocomoCycles = std::atof(argv[++i]); flagLocomoCyclesSet = true; }
+        else if (arg == "--locomo-preset" && i + 1 < argc) flagLocomoPreset = argv[++i];
+        else if (arg == "--locomo-input-price" && i + 1 < argc) { flagLocomoInputPrice = std::atof(argv[++i]); flagLocomoInputPriceSet = true; }
+        else if (arg == "--locomo-output-price" && i + 1 < argc) { flagLocomoOutputPrice = std::atof(argv[++i]); flagLocomoOutputPriceSet = true; }
+        else if (arg == "--locomo-tps" && i + 1 < argc) { flagLocomoTPS = std::atof(argv[++i]); flagLocomoTPSSet = true; }
+        else if (arg == "--avg-wage" && i + 1 < argc) flagAverageWage = std::atoll(argv[++i]);
+        else if (arg == "--overhead" && i + 1 < argc) flagOverhead = std::atof(argv[++i]);
+        else if (arg == "--eaf" && i + 1 < argc) flagEAF = std::atof(argv[++i]);
+        else if (arg == "--cocomo-project-type" && i + 1 < argc) flagCocomoProjectType = argv[++i];
+        else if (arg == "--currency-symbol" && i + 1 < argc) flagCurrencySymbol = argv[++i];
+        else if (arg == "--size-unit" && i + 1 < argc) flagSizeUnit = argv[++i];
+        else if (arg == "--sql-project" && i + 1 < argc) flagSQLProject = argv[++i];
+        else if (arg == "--min-gen-line-length" && i + 1 < argc) flagMinGenLineLength = std::atoi(argv[++i]);
+        else if (arg == "--large-line-count" && i + 1 < argc) flagLargeLineCount = std::atoll(argv[++i]);
+        else if (arg == "--large-byte-count" && i + 1 < argc) flagLargeByteCount = std::atoll(argv[++i]);
+        else if (arg == "--generated-markers" && i + 1 < argc) flagGeneratedMarkers = argv[++i];
             else if ((arg == "-f" || arg == "--format") && i + 1 < argc) flagFormat = ptrs[++i];
             else if ((arg == "-s" || arg == "--sort") && i + 1 < argc) flagSortBy = ptrs[++i];
             else if ((arg == "-i" || arg == "--include-ext") && i + 1 < argc) flagAllowExt = ptrs[++i];
@@ -253,6 +276,21 @@ int main(int argc, char* argv[]) {
         else if (arg == "--locomo") flagLocomo = true;
         else if (arg == "--cost-comparison") flagCostComparison = true;
         else if (arg == "--locomo-cycles" && i + 1 < argc) { flagLocomoCycles = std::atof(argv[++i]); flagLocomoCyclesSet = true; }
+        else if (arg == "--locomo-preset" && i + 1 < argc) flagLocomoPreset = argv[++i];
+        else if (arg == "--locomo-input-price" && i + 1 < argc) { flagLocomoInputPrice = std::atof(argv[++i]); flagLocomoInputPriceSet = true; }
+        else if (arg == "--locomo-output-price" && i + 1 < argc) { flagLocomoOutputPrice = std::atof(argv[++i]); flagLocomoOutputPriceSet = true; }
+        else if (arg == "--locomo-tps" && i + 1 < argc) { flagLocomoTPS = std::atof(argv[++i]); flagLocomoTPSSet = true; }
+        else if (arg == "--avg-wage" && i + 1 < argc) flagAverageWage = std::atoll(argv[++i]);
+        else if (arg == "--overhead" && i + 1 < argc) flagOverhead = std::atof(argv[++i]);
+        else if (arg == "--eaf" && i + 1 < argc) flagEAF = std::atof(argv[++i]);
+        else if (arg == "--cocomo-project-type" && i + 1 < argc) flagCocomoProjectType = argv[++i];
+        else if (arg == "--currency-symbol" && i + 1 < argc) flagCurrencySymbol = argv[++i];
+        else if (arg == "--size-unit" && i + 1 < argc) flagSizeUnit = argv[++i];
+        else if (arg == "--sql-project" && i + 1 < argc) flagSQLProject = argv[++i];
+        else if (arg == "--min-gen-line-length" && i + 1 < argc) flagMinGenLineLength = std::atoi(argv[++i]);
+        else if (arg == "--large-line-count" && i + 1 < argc) flagLargeLineCount = std::atoll(argv[++i]);
+        else if (arg == "--large-byte-count" && i + 1 < argc) flagLargeByteCount = std::atoll(argv[++i]);
+        else if (arg == "--generated-markers" && i + 1 < argc) flagGeneratedMarkers = argv[++i];
         else if ((arg == "-f" || arg == "--format") && i + 1 < argc) flagFormat = argv[++i];
         else if ((arg == "-s" || arg == "--sort") && i + 1 < argc) flagSortBy = argv[++i];
         else if ((arg == "-i" || arg == "--include-ext") && i + 1 < argc) flagAllowExt = argv[++i];
@@ -280,6 +318,23 @@ skip_parse:
     if (flagIgnoreGenerated) flagGenerated = true;
     if (flagDryness) flagUloc = true;
 
+    /* Parse custom COCOMO project type: "custom,a,b,c,d" */
+    {
+        std::string pt = flagCocomoProjectType;
+        for (auto& c : pt) c = (char)std::tolower((unsigned char)c);
+        if (cocomoProjectTypes.find(pt) == cocomoProjectTypes.end()) {
+            /* Try to parse as custom */
+            auto parts = splitCSV(pt);
+            if (parts.size() == 5 && parts[0] == "custom") {
+                std::vector<double> vals;
+                for (int pi = 1; pi <= 4; pi++) {
+                    vals.push_back(std::atof(parts[pi].c_str()));
+                }
+                if (vals.size() == 4) cocomoProjectTypes[pt] = vals;
+            }
+        }
+    }
+
     /* Build CountOptions */
     CountOptions copts;
     copts.skipComplexity = flagNoComplexity;
@@ -288,8 +343,7 @@ skip_parse:
     copts.checkBinary = !flagDisableCheckBinary;
     copts.minGenLineLength = flagMinGenLineLength;
     if (flagGenerated || flagMinifiedGenerated) {
-        auto markers = splitCSV(flagGeneratedMarkers);
-        copts.generatedMarkers = markers;
+        copts.generatedMarkers = splitCSV(flagGeneratedMarkers);
     }
 
     initLanguageDatabase();
@@ -425,6 +479,16 @@ skip_parse:
     fOpts.averageWage = flagAverageWage;
     fOpts.overhead = flagOverhead;
     fOpts.eaf = flagEAF;
+    fOpts.locomoPreset = flagLocomoPreset;
+    fOpts.locomoInputPrice = flagLocomoInputPrice;
+    fOpts.locomoOutputPrice = flagLocomoOutputPrice;
+    fOpts.locomoTPS = flagLocomoTPS;
+    fOpts.locomoInputPriceSet = flagLocomoInputPriceSet;
+    fOpts.locomoOutputPriceSet = flagLocomoOutputPriceSet;
+    fOpts.locomoTPSSet = flagLocomoTPSSet;
+    fOpts.locomoCycles = flagLocomoCycles;
+    fOpts.locomoCyclesSet = flagLocomoCyclesSet;
+    fOpts.sqlProject = flagSQLProject;
 
     /* Format output - support --format-multi */
     if (!flagFormatMulti.empty()) {

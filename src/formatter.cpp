@@ -271,9 +271,11 @@ std::string formatTabular(std::vector<FileJob*>& jobs, const FormatOptions& opts
 
     /* LOCOMO */
     if (opts.locomo) {
-        auto lr = locomoEstimate(sc, sx, opts.projectType,
-                                  0, 0, 0, 0.01,
-                                  false, false, false, 0, false);
+        auto lr = locomoEstimate(sc, sx, opts.locomoPreset,
+                                  opts.locomoInputPrice, opts.locomoOutputPrice, opts.locomoTPS,
+                                  opts.locomoReviewMinPerLine,
+                                  opts.locomoInputPriceSet, opts.locomoOutputPriceSet, opts.locomoTPSSet,
+                                  opts.locomoCycles, opts.locomoCyclesSet);
         out += formatLocomo(lr, opts.currencySymbol);
         out += brk;
     }
@@ -483,11 +485,12 @@ std::string formatDispatch(const FormatOptions& opts, std::vector<FileJob*>& job
         aggregate(jobs, langs, sf, sl, sc, sco, sb, sx, sbytes, opts);
         std::string out;
         char buf[512];
+        std::string project = opts.sqlProject.empty() ? "scc" : opts.sqlProject;
         for (auto& r : langs) {
             snprintf(buf, sizeof(buf),
-                "INSERT INTO scc (language,files,lines,blanks,comments,code,complexity,bytes) "
+                "INSERT INTO %s (language,files,lines,blanks,comments,code,complexity,bytes) "
                 "VALUES ('%s',%ld,%ld,%ld,%ld,%ld,%ld,%ld);\n",
-                r.name.c_str(), r.count, r.lines, r.blank, r.comment, r.code, r.complexity, r.bytes);
+                project.c_str(), r.name.c_str(), r.count, r.lines, r.blank, r.comment, r.code, r.complexity, r.bytes);
             out += buf;
         }
         return out;

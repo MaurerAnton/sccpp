@@ -28,6 +28,19 @@ struct FormatOptions {
     int64_t averageWage = 56286;
     double overhead = 2.4;
     double eaf = 1.0;
+    /* LOCOMO params */
+    std::string locomoPreset = "medium";
+    double locomoInputPrice = 0;
+    double locomoOutputPrice = 0;
+    double locomoTPS = 0;
+    bool locomoInputPriceSet = false;
+    bool locomoOutputPriceSet = false;
+    bool locomoTPSSet = false;
+    double locomoCycles = 0;
+    bool locomoCyclesSet = false;
+    double locomoReviewMinPerLine = 0.01;
+    /* SQL */
+    std::string sqlProject;
 };
 
 /* Format file jobs into tabular output string */
