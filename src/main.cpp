@@ -6,11 +6,9 @@
 #include <cstdio>
 #include <cstring>
 #include <thread>
-#include <mutex>
 #include <vector>
 #include <algorithm>
 #include <atomic>
-#include <sys/stat.h>
 
 /* ---- Flags (matching scc CLI) ---- */
 static bool flagLanguages = false;
@@ -18,8 +16,6 @@ static bool flagByFile = false;
 static bool flagNoComplexity = false;   /* --no-complexity / -c */
 static bool flagMore = false;           /* --wide / -w */
 static bool flagCi = false;            /* --ci */
-static bool flagNoCocomo = true;
-static bool flagNoSize = true;
 static bool flagIncludeSymLinks = false;
 static bool flagNoLarge = false;
 static int64_t flagLargeLineCount = 40000;
@@ -165,9 +161,8 @@ int main(int argc, char* argv[]) {
     for (auto& w : workers) w.join();
 
     /* Format output */
-    std::string output = formatTabular(jobs, flagByFile, flagNoComplexity,
-                                        flagMore, flagCi,
-                                        flagNoCocomo, flagNoSize, flagSortBy);
+    std::string output = formatDispatch(flagFormat, jobs, flagByFile, flagNoComplexity,
+                                         flagMore, flagCi, flagSortBy);
 
     if (flagOutput.empty()) {
         fprintf(stdout, "%s", output.c_str());
